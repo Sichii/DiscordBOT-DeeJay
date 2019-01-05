@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
+using Discord.Audio;
+using Discord.API;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
@@ -19,9 +21,9 @@ namespace DeeJay
     public class CommandHandler : ModuleBase<SocketCommandContext>
     {
         private static YouTubeService YouTubeService;
-        internal CommandService CommandService;
+        private CommandService CommandService;
 
-        internal async Task Initialize()
+        internal CommandHandler()
         {
             CommandService = new CommandService(new CommandServiceConfig()
             {
@@ -29,23 +31,25 @@ namespace DeeJay
                 CaseSensitiveCommands = false,
                 DefaultRunMode = RunMode.Async
             });
-
             YouTubeService = new YouTubeService(new BaseClientService.Initializer()
             {
-                ApiKey = await File.ReadAllTextAsync(CONSTANTS.API_KEY_PATH),
+                ApiKey = File.ReadAllText(CONSTANTS.API_KEY_PATH).Trim(),
                 ApplicationName = "DiscordBOT-DeeJay"
             });
+        }
 
+        internal async Task Initialize()
+        {
             await CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), null);
         }
 
-        internal Task TryHandle(DiscordSocketClient client, SocketMessage message) => Task.Run(async() =>
+        internal Task TryHandle(SocketMessage message) => Task.Run(async() =>
         {
             var msg = message as SocketUserMessage;
-            var context = new SocketCommandContext(client, msg);
+            var context = new SocketCommandContext(Client.SocketClient, msg);
 
             int pos = 0;
-            if (!string.IsNullOrWhiteSpace(context.Message?.Content) && !context.User.IsBot && (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(client.CurrentUser, ref pos)))
+            if (!string.IsNullOrWhiteSpace(context.Message?.Content) && !context.User.IsBot && (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(Client.SocketClient.CurrentUser, ref pos)))
             {
                 IResult result = await CommandService.ExecuteAsync(context, pos, null, MultiMatchHandling.Best);
 
@@ -56,14 +60,14 @@ namespace DeeJay
             }
         });
 
-        [Command("playsong"), Alias("play")]
-        public async Task PlaySong([Remainder]string songName = default)
+        [Command("play")]
+        public async Task Play([Remainder]string songName = default)
         {
             if (string.IsNullOrWhiteSpace(songName))
                 await Context.Channel.SendMessageAsync($"Invalid song name. ({songName})");
             else
             {
-                Task<Discord.Rest.RestUserMessage> t1 = Context.Channel.SendMessageAsync($"Searching for {songName}...");
+                await Context.Channel.SendMessageAsync($"Searching for {songName}...");
 
                 SearchResource.ListRequest searchRequest = YouTubeService.Search.List("snippet");
                 searchRequest.Q = songName;
@@ -71,29 +75,61 @@ namespace DeeJay
                 searchRequest.MaxResults = 5;
 
                 SearchListResponse searchResponse = await searchRequest.ExecuteAsync();
-                Google.Apis.YouTube.v3.Data.SearchResult useMe = searchResponse.Items.FirstOrDefault(result => result.Id.Kind == "youtube#video");
-                string targetURL = "https://www.youtube.com/watch?v=" + useMe.Id.VideoId;
+                Google.Apis.YouTube.v3.Data.SearchResult result = searchResponse.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
+                string targetURL = "https://www.youtube.com/watch?v=" + result.Id.VideoId;
+
+                await Client.JoinVoice((Context.User as IVoiceState).VoiceChannel);
 
                 var youtubedl = new Process()
                 {
                     EnableRaisingEvents = true,
-                    StartInfo = new ProcessStartInfo("youtube-dl.exe", "-g")
+                    StartInfo = new ProcessStartInfo
                     {
+                        FileName = CONSTANTS.YOUTUBEDL_PATH,
+                        Arguments = $"-g {targetURL}",
                         CreateNoWindow = true,
                         UseShellExecute = false,
                         RedirectStandardOutput = true
                     }
                 };
-                youtubedl.OutputDataReceived += (s, e) =>
+                string output = "";
+                youtubedl.OutputDataReceived += (s, e) => Task.Run(() =>
                 {
-                    //use target url to get audio stream
-                    //use audio stream to play audio in discord channel
-                };
+                    output += e.Data;
+                });
 
                 youtubedl.Start();
                 youtubedl.BeginOutputReadLine();
+                youtubedl.WaitForExit();
+                youtubedl.Dispose();
+
+                await Context.Channel.SendMessageAsync($"Playing {result.Snippet.Title}!");
+                await Client.PlayAudio(output.Trim());
+                await Client.LeaveVoice();
             }
         }
 
+        [Command("stop")]
+        public async Task StopSong()
+        {
+            await Client.StopAudio();
+        }
+
+        [Command("leave")]
+        public async Task Leave()
+        {
+            await Client.LeaveVoice();
+        }
+
+        [Command("help"), Alias("commands")]
+        public async Task Help()
+        {
+            await Context.User.SendMessageAsync(
+                $"COMMAND | ALIASES : DESCRIPTION{Environment.NewLine}" +
+                $"!play [song name] : plays the first youtube result{Environment.NewLine}" +
+                $"!stop : stops playback of current song{Environment.NewLine}" +
+                $"!leave : forces bot to leave voice chat{Environment.NewLine}" +
+                $"!help | !commands : this, obviously{Environment.NewLine}");
+        }
     }
 }

@@ -10,9 +10,7 @@ namespace DeeJay
     {
         internal static void Main(string[] args)
         {
-            var client = new Client();
-            Task init = client.Initialize();
-            init.Wait();
+            Client.Initialize();
 
             Task.Delay(-1).GetAwaiter().GetResult();
         }

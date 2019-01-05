@@ -6,31 +6,33 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using Discord;
-using Discord.Commands;
 using Discord.WebSocket;
+using Discord.Audio;
 
 namespace DeeJay
 {
-    internal sealed class Client
+    internal static class Client
     {
-        internal static Task CurrentTask;
-        private readonly DiscordSocketClient SocketClient;
-        private readonly CommandHandler Commands;
-        private string Token;
+        private readonly static CommandHandler Commands;
+        private static string Token;
 
-        internal Client()
+        internal static Tuple<IVoiceChannel, IAudioClient> AudioClient { get; set; }
+        internal static DiscordSocketClient SocketClient { get; }
+
+        static Client()
         {
+            Commands = new CommandHandler();
+            AudioClient = new Tuple<IVoiceChannel, IAudioClient>(default, default);
             SocketClient = new DiscordSocketClient(new DiscordSocketConfig
             {
                 LogLevel = LogSeverity.Debug
             });
-            Commands = new CommandHandler();
         }
 
-        internal async Task Initialize()
+        internal static async Task Initialize()
         {
             Task init = Commands.Initialize();
-            Token = await File.ReadAllTextAsync(CONSTANTS.TOKEN_PATH);
+            Token = (await File.ReadAllTextAsync(CONSTANTS.TOKEN_PATH)).Trim();
 
             SocketClient.Log += (msg) => Task.Run(() => { Console.WriteLine(msg.Message); });
             SocketClient.MessageReceived += SocketReceive;
@@ -40,7 +42,48 @@ namespace DeeJay
             await SocketClient.StartAsync();
         }
 
-        private async Task SocketReceive(SocketMessage msg) => await Commands.TryHandle(SocketClient, msg);
-        private async Task SocketReady() => await SocketClient.SetGameAsync("hard to get", "https://www.youtube.com/", ActivityType.Playing);
+        private static async Task SocketReceive(SocketMessage msg) => await Commands.TryHandle(msg);
+        private static async Task SocketReady() => await SocketClient.SetGameAsync("hard to get", "https://www.youtube.com/", ActivityType.Playing);
+
+        internal static async Task JoinVoice(IVoiceChannel channel)
+        {
+            if (AudioClient.Item1?.Id == channel.Id)
+                await LeaveVoice();
+
+            AudioClient = new Tuple<IVoiceChannel, IAudioClient>(channel, await channel.ConnectAsync());
+        }
+
+        internal static async Task LeaveVoice()
+        {
+            await StopAudio();
+            await AudioClient.Item1.DisconnectAsync();
+        }
+
+        internal static async Task PlayAudio(string URL)
+        {
+            using (var ffmpeg = Process.Start(new ProcessStartInfo
+            {
+                FileName = CONSTANTS.FFMPEG_PATH,
+                Arguments = $"-hide_banner -loglevel quiet -i \"{URL}\" -ac 2 -f s16le -ar 48000 pipe:1",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true
+            }))
+            using(AudioOutStream audioStream = AudioClient.Item2.CreatePCMStream(AudioApplication.Music))
+            {
+                try
+                {
+                    await ffmpeg.StandardOutput.BaseStream.CopyToAsync(audioStream);
+                }
+                finally { await audioStream.FlushAsync(); }
+            }
+        }
+
+        internal static async Task StopAudio()
+        {
+            Task t1 = AudioClient.Item2?.StopAsync() ?? Task.CompletedTask;
+            await t1;
+            AudioClient.Item2?.Dispose();
+        }
     }
 }
