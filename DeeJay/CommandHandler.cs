@@ -1,22 +1,15 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
-using Discord.Audio;
-using Discord.API;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
-using Google.Apis.YouTube.v3.Data;
 using System.Linq;
-using System.Diagnostics;
 using System.Threading;
-using SearchResult = Google.Apis.YouTube.v3.Data.SearchResult;
+using System.Collections.Generic;
 
 namespace DeeJay
 {
@@ -45,28 +38,39 @@ namespace DeeJay
             await CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), null);
         }
 
+        /// <summary>
+        /// Parse input. If it's a command, executes relevant method.
+        /// </summary>
+        /// <param name="message">The message to parse.</param>
         internal Task TryHandleAsync(SocketMessage message)
         {
+            //run this in another thread and return task completed to the caller, to allow the bot to more easily accept other commands
             Task.Run(async () =>
             {
                 var msg = message as SocketUserMessage;
                 var context = new SocketCommandContext(Client.SocketClient, msg);
 
+                //pos will be the place we're at in the message after we check for the command prefix
                 int pos = 0;
+
+                //check if the message is null/etc, checks if it's command prefixed or user mentioned
                 if (!string.IsNullOrWhiteSpace(context.Message?.Content) && !context.User.IsBot && (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(Client.SocketClient.CurrentUser, ref pos)))
                 {
                     try
                     {
+                        //if it is, try to execute the command
                         IResult result = await CommandService.ExecuteAsync(context, pos, null, MultiMatchHandling.Best);
 
+                        //log success/failure
                         if (!result.IsSuccess)
                             Console.WriteLine(result.ErrorReason);
                         else
                             Console.WriteLine("Command Success.");
                     }
-                    catch (OperationCanceledException)
+                    catch (Exception ex)
                     {
-                        Console.WriteLine("Previous playback stopped.");
+                        //exceptions shouldnt reach this far, but just in case
+                        Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}UNKNOWN EXCEPTION - SEVERE{Environment.NewLine}{ex.Message}{Environment.NewLine}{Environment.NewLine}");
                     }
                 }
             });
@@ -77,29 +81,33 @@ namespace DeeJay
         [Command("queue"), Alias("q")]
         public async Task Queue([Remainder]string songName = default)
         {
+            //check validity of song name
             if (string.IsNullOrWhiteSpace(songName))
                 await Context.Channel.SendMessageAsync($"Invalid song name.");
             else
             {
-                Song song = default;
+                //create a youtube search object we can use to find/create the song object
                 SearchResource.ListRequest searchRequest = YouTubeService.Search.List("snippet");
                 searchRequest.Q = songName;
                 searchRequest.Type = "video";
                 searchRequest.MaxResults = 5;
 
-                Task<Discord.Rest.RestUserMessage> messageTask = Context.Channel.SendMessageAsync($"Searching for {songName}...");
-                var songTask = Task.Run(async() => { song = await Song.FromRequest(Context.User, searchRequest); });
-                await messageTask;
-                await songTask;
+                //searching for song...
+                await Context.Channel.SendMessageAsync($"Searching for {songName}...");
 
+                //create the song object from the request
+                Song song = await Song.FromRequest(Context.User, searchRequest);
+
+                //queue the song
                 if (song != null)
                     Client.SongQueue.Enqueue(song);
                 else
                     await Context.Channel.SendMessageAsync($"Something went wrong searching for {songName}.");
 
+                //if we're already in a channel, begin playback
                 if (Client.SongQueue.TryPeek(out Song s) && s == song && Client.AudioClient.Item2 != null)
                     await Play();
-                else
+                else //otherwise let them know it's queued up
                     await Context.Channel.SendMessageAsync($"{song.SongTitle} has been queued! Use !come and !play to let it play for you.");
             }
         }
@@ -107,25 +115,31 @@ namespace DeeJay
         [Command("play"), Alias("start", "begin")]
         public async Task Play()
         {
-            //play the next song in the queue if it's not already playing
-            //if playtime has elapsed, instruct the player to seek to elapsed time
+            //play through the queue until otherwise told
             while (true)
+                //if we're not playing a song and there's one available...
                 if (!Song.PlayTime.IsRunning && Client.SongQueue.TryPeek(out Song song))
                     try
                     {
+                        //if we're already in a channel, rejoin it (this is to avoid some buggy shit with the api)
                         if (Client.AudioClient.Item2 != default)
                             await Client.JoinVoiceAsync((Context.User as IVoiceState).VoiceChannel);
-                        else
+                        else //if we're not in a channel, exit this method
                             return;
 
+                        //send message saying what we're playing, then begin playing
                         await Context.Channel.SendMessageAsync($"Playing {song.SongTitle}!");
                         await Client.PlayAudioAsync(song, Song.PlayTime.ElapsedMilliseconds != 0);
                     }
                     catch (OperationCanceledException)
                     {
+                        //thread abort exceptions from pausing/leaving will propogate to here, reset the token just incase it was something else
                         Client.CancellationTokenSource = new CancellationTokenSource();
+                        Console.WriteLine("COMMAND - Playback paused.");
                         return;
                     }
+                else //otherwise exit this method
+                    return;
         }
 
         [Command("pause"), Alias("stop")]
@@ -167,7 +181,9 @@ namespace DeeJay
         public async Task ShowSong()
         {
             if (Client.SongQueue.TryPeek(out Song song))
-                await Context.Channel.SendMessageAsync($"{song.SongTitle} [{Song.PlayTime.Elapsed.ToString("g")} of {song.Duration.ToString("g")}]");
+            {
+                await Context.Channel.SendMessageAsync($"{song.SongTitle} [{Song.PlayTime.Elapsed.ToReadableString()} of {song.Duration.ToReadableString()}]");
+            }
         }
 
         [Command("shownext")]
@@ -178,7 +194,7 @@ namespace DeeJay
                 if (Client.SongQueue.Count > 1)
                 {
                     Song song = Client.SongQueue.ToList()[1];
-                    await Context.Channel.SendMessageAsync($"{song.SongTitle} [{song.Duration.ToString("g")}]");
+                    await Context.Channel.SendMessageAsync($"{song.SongTitle} [{song.Duration.ToReadableString()}]");
                 }
             }
             catch { }
@@ -191,8 +207,13 @@ namespace DeeJay
             {
                 if (Client.SongQueue.Count > 1)
                 {
+                    var songs = new List<string>();
+
+                    int i = 0;
                     foreach (Song song in Client.SongQueue.ToList())
-                        await Context.User.SendMessageAsync($"{song.SongTitle} [{song.Duration.ToString("g")}]");
+                        songs.Add($"{i++}. {song.SongTitle} [{song.Duration.ToReadableString()}]");
+
+                    await Context.User.SendMessageAsync(string.Join('\n', songs));
                 }
             }
             catch { }

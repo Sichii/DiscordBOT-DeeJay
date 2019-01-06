@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Linq;
@@ -30,15 +29,21 @@ namespace DeeJay
             Duration = duration;
         }
 
+        /// <summary>
+        /// Creates a song object from a queue request.
+        /// </summary>
+        /// <param name="requestedBy">The user who requested the song.</param>
+        /// <param name="request">The request object to use.</param>
         internal static async Task<Song> FromRequest(SocketUser requestedBy, SearchResource.ListRequest request)
         {
             //send the search request and grab the first video result
             SearchListResponse results = await request.ExecuteAsync();
             SearchResult result = results.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
 
-            //use youtube-dl to get a direct link to the song, and it's duration
+            //0 = direct link, 1 = duration string
             var output = new List<string>();
 
+            //use youtube-dl to get a direct link to the song, and it's duration
             using (var youtubedl = new Process())
             {
                 youtubedl.EnableRaisingEvents = true;
@@ -46,6 +51,7 @@ namespace DeeJay
                 youtubedl.StartInfo = new ProcessStartInfo
                 {
                     FileName = CONSTANTS.YOUTUBEDL_PATH,
+                    //best audio stream, probe for direct link, get video duration
                     Arguments = $"-f bestaudio -g --get-duration \"{result.Id.VideoId}\"",
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -57,7 +63,7 @@ namespace DeeJay
                 youtubedl.WaitForExit();
             }
 
-            //parse the output of youtube-dl to get the parts i want
+            //parse the duration string
             int[] timeParts = Regex.Match(output[1], @"(\d+)(?::(\d+)(?::(\d+))?)?").Groups.Skip(1).Where(grp => !string.IsNullOrEmpty(grp.Value)).Select(grp => int.Parse(grp.Value)).ToArray();
             TimeSpan duration;
 
