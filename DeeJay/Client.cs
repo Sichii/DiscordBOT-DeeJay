@@ -8,24 +8,30 @@ using System.Threading.Tasks;
 using Discord;
 using Discord.WebSocket;
 using Discord.Audio;
+using System.Collections.Concurrent;
+using System.Threading;
 
 namespace DeeJay
 {
     internal static class Client
     {
+        internal static CancellationTokenSource CancellationTokenSource;
         private readonly static CommandHandler Commands;
         private static string Token;
 
+        internal static ConcurrentQueue<Song> SongQueue { get; }
         internal static Tuple<IVoiceChannel, IAudioClient> AudioClient { get; set; }
         internal static DiscordSocketClient SocketClient { get; }
 
         static Client()
         {
+            CancellationTokenSource = new CancellationTokenSource();
+            SongQueue = new ConcurrentQueue<Song>();
             Commands = new CommandHandler();
             AudioClient = new Tuple<IVoiceChannel, IAudioClient>(default, default);
             SocketClient = new DiscordSocketClient(new DiscordSocketConfig
             {
-                LogLevel = LogSeverity.Debug
+                LogLevel = LogSeverity.Info
             });
         }
 
@@ -35,55 +41,60 @@ namespace DeeJay
             Token = (await File.ReadAllTextAsync(CONSTANTS.TOKEN_PATH)).Trim();
 
             SocketClient.Log += (msg) => Task.Run(() => { Console.WriteLine(msg.Message); });
-            SocketClient.MessageReceived += SocketReceive;
-            SocketClient.Ready += SocketReady;
+            SocketClient.MessageReceived += SocketReceiveAsync;
+            SocketClient.Ready += SocketReadyAsync;
             await init;
             await SocketClient.LoginAsync(TokenType.Bot, Token);
             await SocketClient.StartAsync();
         }
 
-        private static async Task SocketReceive(SocketMessage msg) => await Commands.TryHandle(msg);
-        private static async Task SocketReady() => await SocketClient.SetGameAsync("hard to get", "https://www.youtube.com/", ActivityType.Playing);
+        private static Task SocketReceiveAsync(SocketMessage msg) => Commands.TryHandleAsync(msg);
+        private static Task SocketReadyAsync() => SocketClient.SetGameAsync("hard to get", "https://www.youtube.com/watch?v=", ActivityType.Playing);
 
-        internal static async Task JoinVoice(IVoiceChannel channel)
+        internal static async Task JoinVoiceAsync(IVoiceChannel channel) => AudioClient = new Tuple<IVoiceChannel, IAudioClient>(channel, await channel.ConnectAsync());
+
+        internal static async Task LeaveVoiceAsync() => await AudioClient.Item1.DisconnectAsync();
+
+        internal static async Task PlayAudioAsync(Song song, bool seek = false)
         {
-            if (AudioClient.Item1?.Id == channel.Id)
-                await LeaveVoice();
-
-            AudioClient = new Tuple<IVoiceChannel, IAudioClient>(channel, await channel.ConnectAsync());
-        }
-
-        internal static async Task LeaveVoice()
-        {
-            await StopAudio();
-            await AudioClient.Item1.DisconnectAsync();
-        }
-
-        internal static async Task PlayAudio(string URL)
-        {
-            using (var ffmpeg = Process.Start(new ProcessStartInfo
-            {
-                FileName = CONSTANTS.FFMPEG_PATH,
-                Arguments = $"-hide_banner -loglevel quiet -i \"{URL}\" -ac 2 -f s16le -ar 48000 pipe:1",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true
-            }))
-            using(AudioOutStream audioStream = AudioClient.Item2.CreatePCMStream(AudioApplication.Music))
-            {
-                try
+            if (!seek || (seek && Song.PlayTime.Elapsed < song.Duration))
+                using (var ffmpeg = Process.Start(new ProcessStartInfo
                 {
-                    await ffmpeg.StandardOutput.BaseStream.CopyToAsync(audioStream);
+                    FileName = CONSTANTS.FFMPEG_PATH,
+                    Arguments = $"-hide_banner -loglevel quiet {(seek ? $"-ss {Song.PlayTime.Elapsed.ToString("c")}" : string.Empty)} -i \"{song.DirectLink}\" -ac 2 -af volume=0.75 -f s16le -ar 48000 pipe:1",
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true
+                }))
+                using (AudioOutStream audioStream = AudioClient.Item2.CreatePCMStream(AudioApplication.Music))
+                {
+                    Song.PlayTime.Start();
+                    try
+                    {
+                        await ffmpeg.StandardOutput.BaseStream.CopyToAsync(audioStream, CancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException ex) { throw ex; }
+                    catch (Exception ex) { throw ex; }
+                    finally
+                    {
+                        await audioStream.FlushAsync();
+                        ffmpeg.Kill();
+                    }
                 }
-                finally { await audioStream.FlushAsync(); }
-            }
+
+            Song.PlayTime.Reset();
+            SongQueue.TryDequeue(out Song s);
         }
 
-        internal static async Task StopAudio()
+        internal static Task StopAudioAsync()
         {
-            Task t1 = AudioClient.Item2?.StopAsync() ?? Task.CompletedTask;
-            await t1;
-            AudioClient.Item2?.Dispose();
+            if (AudioClient.Item2 != null)
+            {
+                CancellationTokenSource.Cancel();
+                CancellationTokenSource = new CancellationTokenSource();
+            }
+
+            return Task.CompletedTask;
         }
     }
 }
