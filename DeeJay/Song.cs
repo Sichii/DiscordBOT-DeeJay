@@ -12,20 +12,21 @@ namespace DeeJay
 {
     internal sealed class Song
     {
-        internal static readonly Stopwatch PlayTime = new Stopwatch();
+        internal static readonly Stopwatch Progress = new Stopwatch();
         internal SocketUser RequestedBy { get; }
         internal SearchResult ResultFrom { get; }
         internal string YTLink { get; }
         internal string DirectLink { get; }
-        internal string SongTitle { get; }
+        internal string Title { get; }
         internal TimeSpan Duration { get; }
 
         private Song(SocketUser requestedBy, SearchResult resultFrom, string ytLink, string directLink, string songTitle, TimeSpan duration)
         {
+            RequestedBy = requestedBy;
             ResultFrom = resultFrom;
             YTLink = ytLink;
             DirectLink = directLink;
-            SongTitle = songTitle;
+            Title = songTitle;
             Duration = duration;
         }
 

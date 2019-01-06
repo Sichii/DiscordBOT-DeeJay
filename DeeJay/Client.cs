@@ -43,11 +43,27 @@ namespace DeeJay
             //set up the discord client to log things and act on messages people send
             SocketClient.Log += (msg) => Task.Run(() => { Console.WriteLine(msg.Message); });
             SocketClient.MessageReceived += (msg) => Commands.TryHandleAsync(msg);
-            SocketClient.Ready += () => SocketClient.SetGameAsync("hard to get", "https://www.youtube.com/watch?v=", ActivityType.Playing);
+            SocketClient.Ready += () => UpdateActivityAsync("hard to get (!help)", "https://www.youtube.com", ActivityType.Playing);
 
             await init;
             await SocketClient.LoginAsync(TokenType.Bot, Token);
             await SocketClient.StartAsync();
+        }
+
+        /// <summary>
+        /// Updates the bot's status.
+        /// </summary>
+        internal static async Task UpdateActivityAsync(string status, string link, ActivityType type)
+        {
+            switch(type)
+            {
+                case ActivityType.Playing:
+                    await SocketClient.SetGameAsync(status, link, type);
+                    break;
+                default:
+                    await SocketClient.SetActivityAsync(new DiscordActivity(status, type));
+                    break;
+            }
         }
 
         /// <summary>
@@ -59,7 +75,7 @@ namespace DeeJay
         /// <summary>
         /// Pauses audio playback and leaves the current voice channel.
         /// </summary>
-        internal static async Task LeaveVoiceAsync() => await AudioClient.Item1.DisconnectAsync();
+        internal static Task LeaveVoiceAsync() => AudioClient.Item1.DisconnectAsync();
 
         /// <summary>
         /// Plays a song in the current voice channel.
@@ -69,20 +85,23 @@ namespace DeeJay
         internal static async Task PlayAudioAsync(Song song, bool seek = false)
         {
             //if we're being told to seek, but we've elapsed beyond the song duration, skip audio playback
-            if (!seek || (seek && Song.PlayTime.Elapsed < song.Duration))
+            if (!seek || (seek && Song.Progress.Elapsed < song.Duration))
+            {
+                await UpdateActivityAsync($"Playing {song.Title}!", null, ActivityType.Listening);
+
                 //use FFMPEG
                 using (var ffmpeg = Process.Start(new ProcessStartInfo
                 {
                     FileName = CONSTANTS.FFMPEG_PATH,
                     //no text, seek to previously elapsed if necessary, 2 channel, 75% volume, pcm s16le stream format, 48000hz, pipe 1
-                    Arguments = $"-hide_banner -loglevel quiet {(seek ? $"-ss {Song.PlayTime.Elapsed.ToString("c")}" : string.Empty)} -i \"{song.DirectLink}\" -ac 2 -af volume=0.75 -f s16le -ar 48000 pipe:1",
+                    Arguments = $"-hide_banner -loglevel quiet {(seek ? $"-ss {Song.Progress.Elapsed.ToString("c")}" : string.Empty)} -i \"{song.DirectLink}\" -ac 2 -af volume=0.75 -f s16le -ar 48000 pipe:1",
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true
                 }))
                 using (AudioOutStream audioStream = AudioClient.Item2.CreatePCMStream(AudioApplication.Music))
                 {
-                    Song.PlayTime.Start();
+                    Song.Progress.Start();
                     try
                     {
                         await ffmpeg.StandardOutput.BaseStream.CopyToAsync(audioStream, CancellationTokenSource.Token);
@@ -100,17 +119,18 @@ namespace DeeJay
                             ffmpeg.Kill();
                     }
                 }
+            }
 
             //in the case where internet hiccups and the stream takes a dump, catch playback progress and allow outer retry
-            if(Song.PlayTime.Elapsed < song.Duration)
+            if(Song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(5)))
             {
                 Console.WriteLine($"Playback error, recovering...");
-                Song.PlayTime.Stop();
+                Song.Progress.Stop();
                 return;
             }
 
             //song successfully completed, reset playback timer and dequeue the song that completed
-            Song.PlayTime.Reset();
+            Song.Progress.Reset();
             SongQueue.TryDequeue(out Song s);
         }
 

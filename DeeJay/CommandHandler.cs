@@ -93,7 +93,7 @@ namespace DeeJay
                 searchRequest.MaxResults = 5;
 
                 //searching for song...
-                await Context.Channel.SendMessageAsync($"Searching for {songName}...");
+                //await Context.Channel.SendMessageAsync($"Searching for {songName}...");
 
                 //create the song object from the request
                 Song song = await Song.FromRequest(Context.User, searchRequest);
@@ -105,10 +105,10 @@ namespace DeeJay
                     await Context.Channel.SendMessageAsync($"Something went wrong searching for {songName}.");
 
                 //if we're already in a channel, begin playback
-                if (Client.SongQueue.TryPeek(out Song s) && s == song && Client.AudioClient.Item2 != null)
+                if (Client.SongQueue.TryPeek(out Song s) && s == song && Client.AudioClient.Item2 != null && Song.Progress.Elapsed == TimeSpan.Zero)
                     await Play();
                 else //otherwise let them know it's queued up
-                    await Context.Channel.SendMessageAsync($"{song.SongTitle} has been queued! Use !come and !play to let it play for you.");
+                    await Context.Channel.SendMessageAsync($"{song.Title} has been queued!");
             }
         }
 
@@ -118,18 +118,11 @@ namespace DeeJay
             //play through the queue until otherwise told
             while (true)
                 //if we're not playing a song and there's one available...
-                if (!Song.PlayTime.IsRunning && Client.SongQueue.TryPeek(out Song song))
+                if (!Song.Progress.IsRunning && Client.SongQueue.TryPeek(out Song song))
                     try
-                    {
-                        //if we're already in a channel, rejoin it (this is to avoid some buggy shit with the api)
-                        if (Client.AudioClient.Item2 != default)
-                            await Client.JoinVoiceAsync((Context.User as IVoiceState).VoiceChannel);
-                        else //if we're not in a channel, exit this method
-                            return;
-
-                        //send message saying what we're playing, then begin playing
-                        await Context.Channel.SendMessageAsync($"Playing {song.SongTitle}!");
-                        await Client.PlayAudioAsync(song, Song.PlayTime.ElapsedMilliseconds != 0);
+                    {   //join the channel of the person who sent the song, update listening to status, and begin playback
+                        await Client.JoinVoiceAsync((song.RequestedBy as IVoiceState).VoiceChannel);
+                        await Client.PlayAudioAsync(song, Song.Progress.ElapsedMilliseconds != 0);
                     }
                     catch (OperationCanceledException)
                     {
@@ -145,7 +138,7 @@ namespace DeeJay
         [Command("pause"), Alias("stop")]
         public async Task Pause()
         {
-            Song.PlayTime.Stop();
+            Song.Progress.Stop();
             await Client.StopAudioAsync();
         }
 
@@ -153,7 +146,7 @@ namespace DeeJay
         public async Task Skip()
         {
             await Pause();
-            Song.PlayTime.Reset();
+            Song.Progress.Reset();
             Client.SongQueue.TryDequeue(out Song song);
             await Task.Run(async() => await Play());
         }
@@ -163,10 +156,10 @@ namespace DeeJay
         {
             await Client.JoinVoiceAsync((Context.User as IVoiceState).VoiceChannel);
 
-            if (Song.PlayTime.IsRunning)
+            if (Song.Progress.IsRunning)
             {
-                Song.PlayTime.Stop();
-                await Task.Run(async () => await Play());
+                Song.Progress.Stop();
+                await Play();
             }
         }
 
@@ -182,7 +175,7 @@ namespace DeeJay
         {
             if (Client.SongQueue.TryPeek(out Song song))
             {
-                await Context.Channel.SendMessageAsync($"{song.SongTitle} [{Song.PlayTime.Elapsed.ToReadableString()} of {song.Duration.ToReadableString()}]");
+                await Context.Channel.SendMessageAsync($"{song.Title} [{Song.Progress.Elapsed.ToReadableString()} of {song.Duration.ToReadableString()}]");
             }
         }
 
@@ -194,7 +187,7 @@ namespace DeeJay
                 if (Client.SongQueue.Count > 1)
                 {
                     Song song = Client.SongQueue.ToList()[1];
-                    await Context.Channel.SendMessageAsync($"{song.SongTitle} [{song.Duration.ToReadableString()}]");
+                    await Context.Channel.SendMessageAsync($"{song.Title} [{song.Duration.ToReadableString()}]");
                 }
             }
             catch { }
@@ -211,13 +204,22 @@ namespace DeeJay
 
                     int i = 0;
                     foreach (Song song in Client.SongQueue.ToList())
-                        songs.Add($"{i++}. {song.SongTitle} [{song.Duration.ToReadableString()}]");
+                        songs.Add($"{i++}. {song.Title} [{song.Duration.ToReadableString()}]");
 
                     await Context.User.SendMessageAsync(string.Join('\n', songs));
                 }
             }
             catch { }
         }
+
+        [Command("remove")]
+        public async Task Remove([Remainder] string arg = default)
+        {
+            //i'll come back to this after i make things thread safe, removing from a queue sucks donkey dick
+        }
+
+        [Command("clear")]
+        public Task Clear() => Task.Run(() => { while (Client.SongQueue.TryDequeue(out Song song)) { } });
 
         [Command("help"), Alias("commands")]
         public async Task Help()
