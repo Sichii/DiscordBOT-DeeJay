@@ -4,11 +4,11 @@ namespace DeeJay
 {
     internal class Program
     {
-        internal static void Main(string[] args)
+        internal static async Task Main(string[] args)
         {
-            Client.Initialize();
+            await Client.Initialize();
 
-            Task.Delay(-1).GetAwaiter().GetResult();
+            await Task.Delay(-1);
         }
     }
 }

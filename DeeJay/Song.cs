@@ -12,10 +12,10 @@ namespace DeeJay
 {
     internal sealed class Song
     {
-        internal static readonly Stopwatch Progress = new Stopwatch();
+        internal Stopwatch Progress { get; }
         internal SocketUser RequestedBy { get; }
         internal SearchResult ResultFrom { get; }
-        internal string YTLink { get; }
+        internal string YtLink { get; }
         internal string DirectLink { get; }
         internal string Title { get; }
         internal TimeSpan Duration { get; }
@@ -24,10 +24,11 @@ namespace DeeJay
         {
             RequestedBy = requestedBy;
             ResultFrom = resultFrom;
-            YTLink = ytLink;
+            YtLink = ytLink;
             DirectLink = directLink;
             Title = songTitle;
             Duration = duration;
+            Progress = new Stopwatch();
         }
 
         /// <summary>
@@ -38,8 +39,8 @@ namespace DeeJay
         internal static async Task<Song> FromRequest(SocketUser requestedBy, SearchResource.ListRequest request)
         {
             //send the search request and grab the first video result
-            SearchListResponse results = await request.ExecuteAsync();
-            SearchResult result = results.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
+            var results = await request.ExecuteAsync();
+            var result = results.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
 
             //0 = direct link, 1 = duration string
             var output = new List<string>();
@@ -53,39 +54,31 @@ namespace DeeJay
                 {
                     FileName = CONSTANTS.YOUTUBEDL_PATH,
                     //best audio stream, probe for direct link, get video duration
-                    Arguments = $"-f bestaudio -g --get-duration \"{result.Id.VideoId}\"",
+                    Arguments = $"-f bestaudio -g --get-duration \"{result?.Id.VideoId}\"",
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     RedirectStandardOutput = true
                 };
 
-                youtubedl.Start();
-                youtubedl.BeginOutputReadLine();
-                youtubedl.WaitForExit();
+                await youtubedl.RunAsync(true);
             }
 
             //parse the duration string
-            int[] timeParts = Regex.Match(output[1], @"(\d+)(?::(\d+)(?::(\d+))?)?").Groups.Skip(1).Where(grp => !string.IsNullOrEmpty(grp.Value)).Select(grp => int.Parse(grp.Value)).ToArray();
-            TimeSpan duration;
+            var timeParts = Regex.Match(output[1], @"(\d+)(?::(\d+)(?::(\d+))?)?").Groups.OfType<Group>().Skip(1).Where(grp => !string.IsNullOrEmpty(grp.Value)).Select(grp => int.Parse(grp.Value)).ToArray();
 
-            switch(timeParts.Length)
+            var duration = timeParts.Length switch
             {
-                case 3:
-                    duration = new TimeSpan(timeParts[0], timeParts[1], timeParts[2]);
-                    break;
-                case 2:
-                    duration = new TimeSpan(0, timeParts[0], timeParts[1]);
-                    break;
-                case 1:
-                    duration = new TimeSpan(0, 0, timeParts[0]);
-                    break;
-                default:
-                    duration = TimeSpan.Zero;
-                    break;
-            }
+                3 => new TimeSpan(timeParts[0], timeParts[1], timeParts[2]),
+                2 => new TimeSpan(0, timeParts[0], timeParts[1]),
+                1 => new TimeSpan(0, 0, timeParts[0]),
+                _ => TimeSpan.Zero
+            };
 
             //return the song object, ready to be used
-            return new Song(requestedBy, result, $"https://www.youtube.com/watch?v={result.Id.VideoId}", output[0].Trim(), result.Snippet.Title, duration);
+            return new Song(requestedBy, result, $"https://www.youtube.com/watch?v={result?.Id.VideoId}", output[0].Trim(), result?.Snippet.Title, duration);
         }
+
+        public string ToString(bool showProgress = false) =>
+            $"{Title} [{(showProgress ? $"{Progress.Elapsed.ToReadableString()} / " : string.Empty)}{Duration.ToReadableString()}]";
     }
 }

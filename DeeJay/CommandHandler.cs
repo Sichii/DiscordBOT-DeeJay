@@ -8,15 +8,13 @@ using Discord.WebSocket;
 using Google.Apis.Services;
 using Google.Apis.YouTube.v3;
 using System.Linq;
-using System.Threading;
-using System.Collections.Generic;
 
 namespace DeeJay
 {
     public class CommandHandler : ModuleBase<SocketCommandContext>
     {
         private static YouTubeService YouTubeService;
-        private CommandService CommandService;
+        private readonly CommandService CommandService;
 
         internal CommandHandler()
         {
@@ -28,86 +26,81 @@ namespace DeeJay
             });
             YouTubeService = new YouTubeService(new BaseClientService.Initializer()
             {
-                ApiKey = File.ReadAllText(CONSTANTS.API_KEY_PATH).Trim(),
+                ApiKey = File.ReadAllText(CONSTANTS.API_KEY_PATH)
+                    .Trim(),
                 ApplicationName = "DiscordBOT-DeeJay"
             });
         }
 
-        internal async Task Initialize()
-        {
-            await CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), null);
-        }
+        internal Task Initialize() => CommandService.AddModulesAsync(Assembly.GetEntryAssembly(), null);
 
         /// <summary>
         /// Parse input. If it's a command, executes relevant method.
         /// </summary>
         /// <param name="message">The message to parse.</param>
-        internal Task TryHandleAsync(SocketMessage message)
+        internal async Task TryHandleAsync(SocketMessage message)
         {
             //run this in another thread and return task completed to the caller, to allow the bot to more easily accept other commands
-            Task.Run(async () =>
-            {
-                var msg = message as SocketUserMessage;
-                var context = new SocketCommandContext(Client.SocketClient, msg);
+            var msg = message as SocketUserMessage;
+            var context = new SocketCommandContext(Client.SocketClient, msg);
 
-                //pos will be the place we're at in the message after we check for the command prefix
-                int pos = 0;
+            //pos will be the place we're at in the message after we check for the command prefix
+            var pos = 0;
 
-                //check if the message is null/etc, checks if it's command prefixed or user mentioned
-                if (!string.IsNullOrWhiteSpace(context.Message?.Content) && !context.User.IsBot && (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(Client.SocketClient.CurrentUser, ref pos)))
+            //check if the message is null/etc, checks if it's command prefixed or user mentioned
+            if (!string.IsNullOrWhiteSpace(context.Message?.Content) && !context.User.IsBot &&
+                (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(Client.SocketClient.CurrentUser, ref pos)))
+                try
                 {
-                    try
-                    {
-                        //if it is, try to execute the command
-                        IResult result = await CommandService.ExecuteAsync(context, pos, null, MultiMatchHandling.Best);
+                    //if it is, try to execute the command
+                    var result = await CommandService.ExecuteAsync(context, pos, null, MultiMatchHandling.Best);
 
-                        //log success/failure
-                        if (!result.IsSuccess)
-                            Console.WriteLine(result.ErrorReason);
-                        else
-                            Console.WriteLine("Command Success.");
-                    }
-                    catch (Exception ex)
-                    {
-                        //exceptions shouldnt reach this far, but just in case
-                        Console.WriteLine($"{Environment.NewLine}{Environment.NewLine}UNKNOWN EXCEPTION - SEVERE{Environment.NewLine}{ex.Message}{Environment.NewLine}{Environment.NewLine}");
-                    }
+                    //log success/failure
+                    Console.WriteLine(!result.IsSuccess ? result.ErrorReason : "Command Success.");
+                } catch (Exception ex)
+                {
+                    //exceptions shouldnt reach this far, but just in case
+                    Console.WriteLine(
+                        $"{Environment.NewLine}{Environment.NewLine}UNKNOWN EXCEPTION - SEVERE{Environment.NewLine}{ex.Message}{Environment.NewLine}{Environment.NewLine}");
                 }
-            });
-
-            return Task.CompletedTask;
         }
 
         [Command("queue"), Alias("q")]
-        public async Task Queue([Remainder]string songName = default)
+        public async Task Queue([Remainder] string songName = default)
         {
             //check validity of song name
             if (string.IsNullOrWhiteSpace(songName))
-                await Context.Channel.SendMessageAsync($"Invalid song name.");
+                await Context.Channel.SendMessageAsync($"No song name specified. (!q <songname>)");
             else
             {
                 //create a youtube search object we can use to find/create the song object
-                SearchResource.ListRequest searchRequest = YouTubeService.Search.List("snippet");
+                var searchRequest = YouTubeService.Search.List("snippet");
                 searchRequest.Q = songName;
                 searchRequest.Type = "video";
                 searchRequest.MaxResults = 5;
 
-                //searching for song...
-                //await Context.Channel.SendMessageAsync($"Searching for {songName}...");
-
                 //create the song object from the request
-                Song song = await Song.FromRequest(Context.User, searchRequest);
+                var song = await Song.FromRequest(Context.User, searchRequest);
 
                 //queue the song
                 if (song != null)
                     Client.SongQueue.Enqueue(song);
                 else
+                {
                     await Context.Channel.SendMessageAsync($"Something went wrong searching for {songName}.");
+                    return;
+                }
 
-                //if we're already in a channel, begin playback
-                if (Client.SongQueue.TryPeek(out Song s) && s == song && Client.AudioClient.Item2 != null && Song.Progress.Elapsed == TimeSpan.Zero)
+                //if we're not inf a voice channel, join the caller's channel
+                if (Client.VoiceChannel == null)
+                    await Come();
+
+                //if we're not currently playing audio, play the next song
+                if (!Client.Playing)
+                {
+                    await Come();
                     await Play();
-                else //otherwise let them know it's queued up
+                } else //otherwise let them know it's queued up
                     await Context.Channel.SendMessageAsync($"{song.Title} has been queued!");
             }
         }
@@ -115,127 +108,79 @@ namespace DeeJay
         [Command("play"), Alias("start", "begin")]
         public async Task Play()
         {
-            //play through the queue until otherwise told
-            while (true)
-                //if we're not playing a song and there's one available...
-                if (!Song.Progress.IsRunning && Client.SongQueue.TryPeek(out Song song))
-                    try
-                    {   //join the channel of the person who sent the song, update listening to status, and begin playback
-                        await Client.JoinVoiceAsync((song.RequestedBy as IVoiceState).VoiceChannel);
-                        await Client.PlayAudioAsync(song, Song.Progress.ElapsedMilliseconds != 0);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        //thread abort exceptions from pausing/leaving will propogate to here, reset the token just incase it was something else
-                        Client.CancellationTokenSource = new CancellationTokenSource();
-                        Console.WriteLine("COMMAND - Playback paused.");
-                        return;
-                    }
-                else //otherwise exit this method
-                    return;
+            //if we're already playing music then return
+            if (Client.Playing)
+                return;
+
+            await Come();
+            await Client.Play();
         }
 
         [Command("pause"), Alias("stop")]
-        public async Task Pause()
-        {
-            Song.Progress.Stop();
-            await Client.StopAudioAsync();
-        }
+        public Task Pause() => Client.StopSongAsync();
 
         [Command("skip")]
-        public async Task Skip()
-        {
-            await Pause();
-            Song.Progress.Reset();
-            Client.SongQueue.TryDequeue(out Song song);
-            await Task.Run(async() => await Play());
-        }
+        public Task Skip() => Client.SkipSongAsync();
 
         [Command("come")]
-        public async Task Come()
-        {
-            await Client.JoinVoiceAsync((Context.User as IVoiceState).VoiceChannel);
-
-            if (Song.Progress.IsRunning)
-            {
-                Song.Progress.Stop();
-                await Play();
-            }
-        }
+        public async Task Come() => await Client.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
 
         [Command("leave")]
         public async Task Leave()
         {
-            await Pause();
+            await Client.StopSongAsync();
             await Client.LeaveVoiceAsync();
         }
 
         [Command("showsong")]
-        public async Task ShowSong()
-        {
-            if (Client.SongQueue.TryPeek(out Song song))
-            {
-                await Context.Channel.SendMessageAsync($"{song.Title} [{Song.Progress.Elapsed.ToReadableString()} of {song.Duration.ToReadableString()}]");
-            }
-        }
+        public Task ShowSong() =>
+            Client.SongQueue.TryPeek(out var song) ? Context.Channel.SendMessageAsync(song.ToString(true)) : Task.CompletedTask;
 
         [Command("shownext")]
         public async Task ShowNext()
         {
-            try
+            if (Client.SongQueue.Count > 1)
             {
-                if (Client.SongQueue.Count > 1)
-                {
-                    Song song = Client.SongQueue.ToList()[1];
-                    await Context.Channel.SendMessageAsync($"{song.Title} [{song.Duration.ToReadableString()}]");
-                }
+                var song = Client.SongQueue.ToList()[1];
+                await Context.Channel.SendMessageAsync(song.ToString());
             }
-            catch { }
         }
 
         [Command("showqueue"), Alias("showq")]
         public async Task ShowQueue()
         {
-            try
+            if (Client.SongQueue.Count > 1)
             {
-                if (Client.SongQueue.Count > 1)
-                {
-                    var songs = new List<string>();
+                var i = 1;
+                var queueStr = string.Join(Environment.NewLine, Client.SongQueue.Select(song => $"{i++}. {song}"));
 
-                    int i = 0;
-                    foreach (Song song in Client.SongQueue.ToList())
-                        songs.Add($"{i++}. {song.Title} [{song.Duration.ToReadableString()}]");
-
-                    await Context.User.SendMessageAsync(string.Join('\n', songs));
-                }
+                await Context.User.SendMessageAsync(queueStr);
             }
-            catch { }
         }
 
         [Command("remove")]
-        public async Task Remove([Remainder] string arg = default)
-        {
-            //i'll come back to this after i make things thread safe, removing from a queue sucks donkey dick
-        }
+        public Task Remove([Remainder] string arg = default) =>
+            int.TryParse(arg, out var index) ? Client.RemoveSongAsync(index) : Task.CompletedTask;
 
         [Command("clear")]
-        public Task Clear() => Task.Run(() => { while (Client.SongQueue.TryDequeue(out Song song)) { } });
+        public async Task Clear()
+        {
+            if (await Client.StopSongAsync())
+                Client.SongQueue.Clear();
+        }
 
         [Command("help"), Alias("commands")]
-        public async Task Help()
-        {
-            await Context.User.SendMessageAsync(
-                $"COMMAND | ALIASES [arguments] -- DESCRIPTION{Environment.NewLine}" +
-                $"!queue | !q [song name] -- queues the first youtube result{Environment.NewLine}" +
-                $"!play | !start -- begins playback in current voice channel{Environment.NewLine}" +
-                $"!pause | !stop -- stops playback of current song{Environment.NewLine}" +
-                $"!skis -- skips the current song and begins playback of the next{Environment.NewLine}" +
-                $"!come -- joins your voice channel{Environment.NewLine}" +
-                $"!leave -- leaves voice channel{Environment.NewLine}" +
-                $"!showsong -- displays this song's information and progress{Environment.NewLine}" +
-                $"!shownext -- displays the next song's information{Environment.NewLine}" +
-                $"!showqueue | !showq -- dms you info on all songs in the queue{Environment.NewLine}" +
-                $"!help | !commands -- this, obviously{Environment.NewLine}");
-        }
+        public Task Help() =>
+            Context.User.SendMessageAsync($"COMMAND | ALIASES [arguments] -- DESCRIPTION{Environment.NewLine}" +
+                                          $"!queue | !q [song name] -- queues the first youtube result{Environment.NewLine}" +
+                                          $"!play | !start -- begins playback in current voice channel{Environment.NewLine}" +
+                                          $"!pause | !stop -- stops playback of current song{Environment.NewLine}" +
+                                          $"!skis -- skips the current song and begins playback of the next{Environment.NewLine}" +
+                                          $"!come -- joins your voice channel{Environment.NewLine}" +
+                                          $"!leave -- leaves voice channel{Environment.NewLine}" +
+                                          $"!showsong -- displays this song's information and progress{Environment.NewLine}" +
+                                          $"!shownext -- displays the next song's information{Environment.NewLine}" +
+                                          $"!showqueue | !showq -- dms you info on all songs in the queue{Environment.NewLine}" +
+                                          $"!help | !commands -- this, obviously{Environment.NewLine}");
     }
 }

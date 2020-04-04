@@ -1,18 +1,61 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace DeeJay
 {
-    public static class Extensions
+    internal static class Extensions
     {
-        public static string ToReadableString(this TimeSpan timeSpan)
+        internal static string ToReadableString(this TimeSpan timeSpan)
         {
-            int hours = timeSpan.Hours;
-            int minutes = timeSpan.Minutes;
-            int seconds = timeSpan.Seconds;
+            var hours = timeSpan.Hours;
+            var minutes = timeSpan.Minutes;
+            var seconds = timeSpan.Seconds;
 
-            return $"{((hours == 0) ? string.Empty : $"{hours}:")}{minutes}:{seconds.ToString("D2")}";
+            return $"{((hours == 0) ? string.Empty : $"{hours}:")}{minutes}:{seconds:D2}";
+        }
+
+        internal static Task RunAsync(this Process process, bool readOutput)
+        {
+            var source = new TaskCompletionSource<bool>();
+            process.EnableRaisingEvents = true;
+            process.Exited += (s, e) => source.SetResult(true);
+            process.Start();
+            process.BeginOutputReadLine();
+
+            return source.Task;
+        }
+
+        internal static Task WaitForExitAsync(this Process process)
+        {
+            var source = new TaskCompletionSource<bool>();
+            process.EnableRaisingEvents = true;
+            process.Exited += (s, e) => source.SetResult(true);
+
+            return source.Task;
+        }
+
+        internal static TItem RemoveAt<TItem>(this ConcurrentQueue<TItem> queue, int index)
+        {
+            TItem result = default;
+
+            if (index > queue.Count)
+                return result;
+
+            var counter = 0;
+            while (queue.TryDequeue(out var item))
+            {
+                if (counter++ == index)
+                {
+                    result = item;
+                    continue;
+                }
+
+                queue.Enqueue(item);
+            }
+
+            return result;
         }
     }
 }
