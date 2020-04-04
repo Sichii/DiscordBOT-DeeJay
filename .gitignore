@@ -6,6 +6,8 @@
 *.user
 *.userosscache
 *.sln.docstates
+Data/DiscordAuthToken.txt
+Data/YouTubeAPIKey.txt
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
