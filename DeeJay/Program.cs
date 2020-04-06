@@ -1,4 +1,5 @@
 ﻿using System.Threading.Tasks;
+using DeeJay.Model;
 
 namespace DeeJay
 {
@@ -6,6 +7,8 @@ namespace DeeJay
     {
         internal static async Task Main(string[] args)
         {
+            NLog.Web.NLogBuilder.ConfigureNLog("NLog.config");
+
             await Client.Initialize();
 
             await Task.Delay(-1);
