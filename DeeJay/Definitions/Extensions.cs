@@ -8,6 +8,10 @@ namespace DeeJay.Definitions
 {
     internal static class Extensions
     {
+        /// <summary>
+        /// Converts a timespan into a more easily readable string.
+        /// </summary>
+        /// <param name="timeSpan">A timespan object.</param>
         internal static string ToReadableString(this TimeSpan timeSpan)
         {
             var hours = timeSpan.Hours;
@@ -17,6 +21,13 @@ namespace DeeJay.Definitions
             return $"{(hours == 0 ? string.Empty : $"{hours}:")}{minutes}:{seconds:D2}";
         }
 
+        /// <summary>
+        /// Detects the bitrate of the audio, and seeks to the specified time in the song.
+        /// <inheritdoc cref="Stream.Seek"/>
+        /// </summary>
+        /// <param name="stream">A stream object.</param>
+        /// <param name="progress">The time to seek to in the song.</param>
+        /// <param name="duration">The duration of the song.</param>
         internal static void AudioSeek(this Stream stream, TimeSpan progress, TimeSpan duration)
         {
             var bitRate = stream.Length / (duration.Minutes * 60 + duration.Seconds);
@@ -29,6 +40,11 @@ namespace DeeJay.Definitions
             stream.Seek(seekPosition, SeekOrigin.Begin);
         }
 
+        /// <summary>
+        /// Runs a process and asynchronously waits for it to exit.
+        /// </summary>
+        /// <param name="process">A process object.</param>
+        /// <param name="readOutput">Whether or not to read output of the process.</param>
         internal static Task RunAsync(this Process process, bool readOutput)
         {
             var source = new TaskCompletionSource<bool>();
@@ -42,15 +58,12 @@ namespace DeeJay.Definitions
             return source.Task;
         }
 
-        internal static Task WaitForExitAsync(this Process process)
-        {
-            var source = new TaskCompletionSource<bool>();
-            process.EnableRaisingEvents = true;
-            process.Exited += (s, e) => source.SetResult(true);
-
-            return source.Task;
-        }
-
+        /// <summary>
+        /// Dequeues and re-queues objects one at a time, not inserting the object at the specified index.
+        /// </summary>
+        /// <typeparam name="TItem">The generic type of the queue.</typeparam>
+        /// <param name="queue">A queue object.</param>
+        /// <param name="index">The index to remove at.</param>
         internal static TItem RemoveAt<TItem>(this ConcurrentQueue<TItem> queue, int index)
         {
             TItem result = default;

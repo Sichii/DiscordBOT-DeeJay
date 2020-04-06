@@ -12,6 +12,9 @@ using Google.Apis.YouTube.v3.Data;
 
 namespace DeeJay.Model
 {
+    /// <summary>
+    /// A song in the queue.
+    /// </summary>
     internal sealed class Song
     {
         internal Stopwatch Progress { get; }
@@ -24,6 +27,9 @@ namespace DeeJay.Model
         internal Task<MemoryStream> DataTask { get; }
         internal string ErrorMsg { get; }
 
+        /// <summary>
+        /// Constructor to collect song info when an error occurs.
+        /// </summary>
         private Song(SocketUser requestedBy, SearchResult resultFrom, string songTitle, TimeSpan duration, string errorMsg)
         {
             RequestedBy = requestedBy;
@@ -33,6 +39,15 @@ namespace DeeJay.Model
             ErrorMsg = errorMsg;
         }
 
+        /// <summary>
+        /// Primary constructor. Constructs the song and begins to asynchronously download and re-encode the data for streaming to discord.
+        /// </summary>
+        /// <param name="requestedBy">The user the song was requested by.</param>
+        /// <param name="resultFrom">The search result the song came from.</param>
+        /// <param name="ytLink">User friendly youtube link.</param>
+        /// <param name="directLink">Youtube link used by ffmpeg to pull just the audio.</param>
+        /// <param name="songTitle">Title of the song/video as returned by youtube.</param>
+        /// <param name="duration">Duration of the song.</param>
         private Song(SocketUser requestedBy, SearchResult resultFrom, string ytLink, string directLink, string songTitle, TimeSpan duration)
         {
             RequestedBy = requestedBy;
@@ -45,6 +60,9 @@ namespace DeeJay.Model
             DataTask = GetDataStream();
         }
 
+        /// <summary>
+        /// Asynchronously downloads and re-encodes the song via ffmpeg.
+        /// </summary>
         internal async Task<MemoryStream> GetDataStream()
         {
             using var ffmpeg = new Process
@@ -135,8 +153,26 @@ namespace DeeJay.Model
                 .Trim(), result?.Snippet.Title, duration);
         }
 
+        /// <summary>
+        /// Safely disposes of the song data.
+        /// </summary>
+        public async Task DisposeAsync()
+        {
+            try
+            {
+                await (await DataTask).DisposeAsync();
+            } catch
+            {
+                // ignored
+            }
+        }
+
         public override string ToString() => ToString(false);
 
+        /// <summary>
+        /// Used when displaying the currently playing song.
+        /// </summary>
+        /// <param name="showProgress">Whether or not to show current progress in the song.</param>
         public string ToString(bool showProgress) =>
             $"{Title} [{(showProgress ? $"{Progress.Elapsed.ToReadableString()} / " : string.Empty)}{Duration.ToReadableString()}]";
     }

@@ -8,6 +8,9 @@ using Discord.Audio;
 
 namespace DeeJay.Model
 {
+    /// <summary>
+    /// A service that represents music playback for an individual discord server.
+    /// </summary>
     public class GuildMusicService : IServiceProvider
     {
         internal ulong GuildId { get; }
@@ -26,14 +29,14 @@ namespace DeeJay.Model
         }
 
         /// <summary>
-        ///     Joins a voice channel.
+        ///     Pauses audio playback and joins a voice channel.
         /// </summary>
         /// <param name="channel"></param>
         internal async Task JoinVoiceAsync(IVoiceChannel channel)
         {
             if (VoiceChannel != channel)
             {
-                await StopSongAsync();
+                await StopSongAsync(out _);
                 VoiceChannel = channel;
                 AudioClient = await channel.ConnectAsync();
             }
@@ -44,7 +47,7 @@ namespace DeeJay.Model
         /// </summary>
         internal async Task LeaveVoiceAsync()
         {
-            await StopSongAsync();
+            await StopSongAsync(out _);
             await VoiceChannel.DisconnectAsync();
             AudioClient.Dispose();
 
@@ -52,7 +55,10 @@ namespace DeeJay.Model
             AudioClient = null;
         }
 
-        private async Task PlayTask()
+        /// <summary>
+        /// An asynchronous loop that plays songs from the queue until it's empty.
+        /// </summary>
+        private async Task AsyncPlay()
         {
             //play through the queue until otherwise told
             while (true)
@@ -77,10 +83,13 @@ namespace DeeJay.Model
                 }
         }
 
-        internal Task Play()
+        /// <summary>
+        /// Begins the playback loop if it wasn't already running.
+        /// </summary>
+        internal Task PlayAsync()
         {
             if (!Playing)
-                PlayingTask = PlayTask();
+                PlayingTask = AsyncPlay();
 
             return Task.CompletedTask;
         }
@@ -120,13 +129,15 @@ namespace DeeJay.Model
         }
 
         /// <summary>
-        ///     Stops playback of the current audio stream, if there is one.
+        ///     Pauses playback.
         /// </summary>
-        /// <returns></returns>
-        internal Task<bool> StopSongAsync()
+        /// <param name="song">The song that was paused.</param>
+        internal Task<bool> StopSongAsync(out Song song)
         {
+            song = default;
+
             //if the audioclient isnt null
-            if (Playing && SongQueue.TryPeek(out var song))
+            if (Playing && SongQueue.TryPeek(out song))
             {
                 song.Progress.Stop();
                 CancellationTokenSource.Cancel();
@@ -138,30 +149,58 @@ namespace DeeJay.Model
             return Task.FromResult(false);
         }
 
-        internal async Task<bool> SkipSongAsync()
+        /// <summary>
+        /// Pauses the currently playing song and removes it from the queue.
+        /// </summary>
+        /// <param name="songTask">The song that was skipped</param>
+        internal Task<bool> SkipSongAsync(out ValueTask<Song> songTask)
         {
-            if (await StopSongAsync() && SongQueue.TryDequeue(out _))
+            var source = new TaskCompletionSource<Song>();
+            songTask = new ValueTask<Song>(source.Task);
+
+            async Task<bool> InnerSkipSongAsync()
             {
-                await Play();
-                return true;
+                if (await StopSongAsync(out _) && SongQueue.TryDequeue(out var outSong))
+                {
+                    await PlayAsync();
+                    await outSong.DisposeAsync();
+
+                    source.SetResult(outSong);
+                    return true;
+                }
+
+                source.SetResult(default);
+                return false;
             }
 
-            return false;
+            return InnerSkipSongAsync();
         }
 
+        /// <summary>
+        /// Removes a song from the queue at a given index.
+        /// </summary>
+        /// <param name="index">The index in the queue from which the song should be removed. (1-based)</param>
         internal async Task<Song> RemoveSongAsync(int index)
         {
+            Song result;
+
             if (index < 1)
                 return null;
 
-            var result = SongQueue.RemoveAt(index);
-
             if (index == 1)
-                await SkipSongAsync();
+            {
+                await SkipSongAsync(out var songTask);
+                result = await songTask;
+            } else
+            {
+                result = SongQueue.RemoveAt(index);
+                await result.DisposeAsync();
+            }
 
             return result;
         }
 
+        /// <inheritdoc />
         public object GetService(Type serviceType) => this;
     }
 }

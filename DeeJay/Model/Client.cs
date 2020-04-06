@@ -10,13 +10,15 @@ using NLog;
 
 namespace DeeJay.Model
 {
+    /// <summary>
+    /// The bot's discord client. Used for interacting with discord.
+    /// </summary>
     internal static class Client
     {
         internal static ConcurrentDictionary<ulong, GuildMusicService> Services { get; }
+        internal static DiscordSocketClient SocketClient { get; }
         private static readonly string Token;
-        private static readonly DiscordSocketClient SocketClient;
         private static readonly Logger Log;
-
 
         static Client()
         {
@@ -27,19 +29,25 @@ namespace DeeJay.Model
 
             //set up the discord client to log things and act on messages people send
             SocketClient.Log += msg => LogMessage(msg.Severity, msg.Message);
-            SocketClient.MessageReceived += msg => CommandHandler.TryHandleAsync(SocketClient, msg);
+            SocketClient.MessageReceived += CommandHandler.TryHandleAsync;
             SocketClient.Ready += () => SocketClient.SetActivityAsync(new DiscordActivity("hard to get (!help)", ActivityType.Playing));
         }
 
         /// <summary>
-        ///     Initialize non-static variables, and set event handlers
+        ///     Logs the bot into discord.
         /// </summary>
-        internal static async Task Initialize()
+        internal static async Task Login()
         {
             await SocketClient.LoginAsync(TokenType.Bot, Token);
             await SocketClient.StartAsync();
         }
 
+        /// <summary>
+        /// Interceptor for logging messages from Discord.NET
+        /// </summary>
+        /// <param name="severity">Specifies the severity of the log message.</param>
+        /// <param name="message">The message to be logged.</param>
+        /// <returns></returns>
         internal static Task LogMessage(LogSeverity severity, string message)
         {
             switch(severity)

@@ -12,6 +12,9 @@ using NLog;
 
 namespace DeeJay.Command
 {
+    /// <summary>
+    /// A module that accepts a music service, and handles commands per-server.
+    /// </summary>
     public class CommandModule : ModuleBase<SocketCommandContext>
     {
         private static readonly YouTubeService YouTubeService;
@@ -102,7 +105,7 @@ namespace DeeJay.Command
 
             Log.Info($"{logStr} Playing {MusicService.SongQueue.First().Title}");
             await Come();
-            await MusicService.Play();
+            await MusicService.PlayAsync();
         }
 
         [Command("pause"), Alias("stop")]
@@ -110,8 +113,8 @@ namespace DeeJay.Command
         {
             var logStr = $"[Command:{nameof(Pause)}][RequestedBy:{Context.User.Username}]";
 
-            if(await MusicService.StopSongAsync())
-                Log.Info($"{logStr} Stopping {MusicService.SongQueue.First().Title}");
+            if(await MusicService.StopSongAsync(out var song))
+                Log.Info($"{logStr} Stopping {song.Title}");
             else
                 Log.Warn($"{logStr} Attempted to pause when not already playing.");
         }
@@ -121,9 +124,9 @@ namespace DeeJay.Command
         {
             var logStr = $"[Command:{nameof(Skip)}][RequestedBy:{Context.User.Username}]";
 
-            if (await MusicService.SkipSongAsync())
+            if (await MusicService.SkipSongAsync(out var songTask))
             {
-                Log.Info($"{logStr} Skipping {MusicService.SongQueue.First().Title}");
+                Log.Info($"{logStr} Skipping {(await songTask).Title}");
             } else
                 Log.Warn($"{logStr} Attempted to skip when not already playing.");
         }
@@ -142,8 +145,8 @@ namespace DeeJay.Command
         {
             var logStr = $"[Command:{nameof(Leave)}][RequestedBy:{Context.User.Username}]";
 
-            if(await MusicService.StopSongAsync())
-                Log.Info($"{logStr} Stopping {MusicService.SongQueue.First().Title}");
+            if(await MusicService.StopSongAsync(out var song))
+                Log.Info($"{logStr} Stopping {song.Title}");
 
             if (MusicService.VoiceChannel != null)
             {
@@ -227,8 +230,8 @@ namespace DeeJay.Command
         {
             var logStr = $"[Command:{nameof(Clear)}][RequestedBy:{Context.User.Username}]";
 
-            if(await MusicService.StopSongAsync())
-                Log.Info($"{logStr} Stopping {MusicService.SongQueue.First().Title}");
+            if(await MusicService.StopSongAsync(out var song))
+                Log.Info($"{logStr} Stopping {song.Title}");
 
             Log.Info($"{logStr} Clearing song queue.");
             MusicService.SongQueue.Clear();

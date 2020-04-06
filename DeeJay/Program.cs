@@ -9,7 +9,7 @@ namespace DeeJay
         {
             NLog.Web.NLogBuilder.ConfigureNLog("NLog.config");
 
-            await Client.Initialize();
+            await Client.Login();
 
             await Task.Delay(-1);
         }

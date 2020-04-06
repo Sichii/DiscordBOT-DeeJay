@@ -8,6 +8,9 @@ using NLog;
 
 namespace DeeJay.Command
 {
+    /// <summary>
+    /// Handles commands that appear in any server that the bot is part of.
+    /// </summary>
     public static class CommandHandler
     {
         private static readonly Logger Log = LogManager.GetLogger("CommandHandler");
@@ -21,10 +24,10 @@ namespace DeeJay.Command
         /// <summary>
         ///     Parse input. If it's a command, executes relevant method.
         /// </summary>
-        /// <param name="client">The bot client reading the message.</param>
         /// <param name="message">The message to parse.</param>
-        public static async Task TryHandleAsync(DiscordSocketClient client, SocketMessage message)
+        public static async Task TryHandleAsync(SocketMessage message)
         {
+            var client = Client.SocketClient;
             var msg = (SocketUserMessage) message;
             var context = new SocketCommandContext(client, msg);
 
