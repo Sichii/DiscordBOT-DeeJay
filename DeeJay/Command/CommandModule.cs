@@ -32,7 +32,7 @@ namespace DeeJay.Command
         public CommandModule(GuildMusicService musicService)
         {
             MusicService = musicService;
-            Log = LogManager.GetLogger($"CommandModule-{MusicService.GuildId.ToString()}");
+            Log = LogManager.GetLogger($"CmdServ-{MusicService.GuildId.ToString()}");
         }
 
 
@@ -53,11 +53,24 @@ namespace DeeJay.Command
                 var searchRequest = YouTubeService.Search.List("snippet");
                 searchRequest.Q = songName;
                 searchRequest.Type = "video";
-                searchRequest.MaxResults = 5;
+                searchRequest.MaxResults = 1;
 
                 Log.Info($"{logStr} Searching.");
+                //send the search request and grab the first video result
+                var results = await searchRequest.ExecuteAsync();
+                var result = results.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
+                var title = result?.Snippet.Title;
+
+                //if this song title is already in queue, dont queue it
+                if (result != null && MusicService.SongQueue.Any(innerSong => innerSong.Title.EqualsI(title)))
+                {
+                    Log.Warn($"{logStr} Song already queued. ({title})");
+                    await Context.Channel.SendMessageAsync($"{title} was already queued.");
+                    return;
+                }
+
                 //create the song object from the request
-                var song = await Song.FromRequest(Context.User, searchRequest);
+                var song = await Song.FromRequest(Context.User, result);
 
                 if (song == null)
                 {

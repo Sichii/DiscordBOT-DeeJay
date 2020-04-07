@@ -7,7 +7,6 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
 using Discord.WebSocket;
-using Google.Apis.YouTube.v3;
 using Google.Apis.YouTube.v3.Data;
 
 namespace DeeJay.Model
@@ -24,7 +23,7 @@ namespace DeeJay.Model
         internal string DirectLink { get; }
         internal string Title { get; }
         internal TimeSpan Duration { get; }
-        internal Task<MemoryStream> DataTask { get; }
+        internal Task<MemoryStream> DataTask { get; private set; }
         internal string ErrorMsg { get; }
 
         /// <summary>
@@ -95,13 +94,9 @@ namespace DeeJay.Model
         ///     Creates a song object from a queue request.
         /// </summary>
         /// <param name="requestedBy">The user who requested the song.</param>
-        /// <param name="request">The request object to use.</param>
-        internal static async Task<Song> FromRequest(SocketUser requestedBy, SearchResource.ListRequest request)
+        /// <param name="result">The request object to use.</param>
+        internal static async Task<Song> FromRequest(SocketUser requestedBy, SearchResult result)
         {
-            //send the search request and grab the first video result
-            var results = await request.ExecuteAsync();
-            var result = results.Items.FirstOrDefault(item => item.Id.Kind == "youtube#video");
-
             //0 = direct link, 1 = duration string
             var output = new List<string>();
 
@@ -161,6 +156,9 @@ namespace DeeJay.Model
             try
             {
                 await (await DataTask).DisposeAsync();
+                DataTask.Dispose();
+                DataTask = null;
+                GC.Collect();
             } catch
             {
                 // ignored

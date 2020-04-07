@@ -1,13 +1,23 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace DeeJay.Definitions
 {
     internal static class Extensions
     {
+        internal static bool ContainsI(this IEnumerable<string> enumerable, string str) =>
+            enumerable.Contains(str, StringComparer.OrdinalIgnoreCase);
+
+        internal static bool ContainsI(this string str1, string str2) => str1.IndexOf(str2, StringComparison.OrdinalIgnoreCase) != -1;
+
+        internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// Converts a timespan into a more easily readable string.
         /// </summary>

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using DeeJay.Definitions;
 using Discord;
 using Discord.Audio;
+using NLog;
 
 namespace DeeJay.Model
 {
@@ -20,12 +21,14 @@ namespace DeeJay.Model
         internal IAudioClient AudioClient { get; set; }
         internal ConcurrentQueue<Song> SongQueue { get; }
         internal bool Playing => PlayingTask?.Status == TaskStatus.WaitingForActivation;
+        private readonly Logger Log;
 
         internal GuildMusicService(ulong guildId)
         {
             GuildId = guildId;
             CancellationTokenSource = new CancellationTokenSource();
             SongQueue = new ConcurrentQueue<Song>();
+            Log = LogManager.GetLogger($"MscServ-{guildId}");
         }
 
         /// <summary>
@@ -48,8 +51,8 @@ namespace DeeJay.Model
         internal async Task LeaveVoiceAsync()
         {
             await StopSongAsync(out _);
-            await VoiceChannel.DisconnectAsync();
-            AudioClient.Dispose();
+            await (VoiceChannel?.DisconnectAsync() ?? Task.CompletedTask);
+            AudioClient?.Dispose();
 
             VoiceChannel = null;
             AudioClient = null;
@@ -71,7 +74,6 @@ namespace DeeJay.Model
                     {
                         //thread abort exceptions from pausing/leaving will propogate to here, reset the token just incase it was something else
                         CancellationTokenSource = new CancellationTokenSource();
-                        Console.WriteLine("COMMAND - Playback paused.");
                         await AudioClient.SetSpeakingAsync(false);
 
                         return;
@@ -118,12 +120,11 @@ namespace DeeJay.Model
                     song.Progress.Stop();
 
                     if (song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(10)))
-                        Console.WriteLine("Something went wrong with playback.");
+                        Log.Error($"Playback failure. {song.ToString(true)}");
                     else
-                    {
-                        dataStream.Dispose();
-                        SongQueue.TryDequeue(out _);
-                    }
+                        await song.DisposeAsync();
+
+                    SongQueue.TryDequeue(out _);
                 }
             }
         }
@@ -143,6 +144,7 @@ namespace DeeJay.Model
                 CancellationTokenSource.Cancel();
                 CancellationTokenSource = new CancellationTokenSource();
 
+                Log.Info($"Playback paused.");
                 return Task.FromResult(true);
             }
 

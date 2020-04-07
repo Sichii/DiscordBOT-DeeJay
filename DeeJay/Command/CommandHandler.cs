@@ -37,10 +37,11 @@ namespace DeeJay.Command
                 Log.Debug($"Creating new service and module for guild {context.Guild.Id}.");
                 //create the music service and store it under the guild id
                 musicService = new GuildMusicService(context.Guild.Id);
-                Client.Services[context.Guild.Id] = musicService;
 
-                //add a new command module to handle requests from this guild
-                await CommandService.AddModuleAsync<CommandModule>(musicService);
+                if(Client.Services.IsEmpty)
+                    await CommandService.AddModuleAsync<CommandModule>(musicService);
+
+                Client.Services[context.Guild.Id] = musicService;
             }
 
             var guildLog = LogManager.GetLogger($"CommandModule-{context.Guild.Id.ToString()}");
