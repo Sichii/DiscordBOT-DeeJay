@@ -1,11 +1,11 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using DeeJay.Model;
 
 namespace DeeJay.Definitions
 {
@@ -19,7 +19,7 @@ namespace DeeJay.Definitions
         internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Converts a timespan into a more easily readable string.
+        ///     Converts a timespan into a more easily readable string.
         /// </summary>
         /// <param name="timeSpan">A timespan object.</param>
         internal static string ToReadableString(this TimeSpan timeSpan)
@@ -32,17 +32,15 @@ namespace DeeJay.Definitions
         }
 
         /// <summary>
-        /// Detects the bitrate of the audio, and seeks to the specified time in the song.
-        /// <inheritdoc cref="Stream.Seek"/>
+        ///     Detects the bitrate of the audio, and seeks to the specified time in the song.
+        ///     <inheritdoc cref="Stream.Seek" />
         /// </summary>
-        /// <param name="stream">A stream object.</param>
-        /// <param name="progress">The time to seek to in the song.</param>
-        /// <param name="duration">The duration of the song.</param>
-        internal static void AudioSeek(this Stream stream, TimeSpan progress, TimeSpan duration)
+        /// <param name="song">A song object.</param>
+        internal static async Task AutoSeekAsync(this Song song)
         {
-            var bitRate = stream.Length / (duration.Minutes * 60 + duration.Seconds);
-
-            var seekPosition = bitRate * (long) progress.TotalSeconds;
+            var stream = await song.DataTask;
+            var bitRate = stream.Length / (long) song.Duration.TotalSeconds;
+            var seekPosition = bitRate * (long) song.Progress.Elapsed.TotalSeconds;
 
             if (seekPosition > stream.Length)
                 stream.Seek(0, SeekOrigin.Begin);
@@ -51,7 +49,7 @@ namespace DeeJay.Definitions
         }
 
         /// <summary>
-        /// Runs a process and asynchronously waits for it to exit.
+        ///     Runs a process and asynchronously waits for it to exit.
         /// </summary>
         /// <param name="process">A process object.</param>
         /// <param name="readOutput">Whether or not to read output of the process.</param>
@@ -69,7 +67,7 @@ namespace DeeJay.Definitions
         }
 
         /// <summary>
-        /// Dequeues and re-queues objects one at a time, not inserting the object at the specified index.
+        ///     Dequeues and re-queues objects one at a time, not inserting the object at the specified index.
         /// </summary>
         /// <typeparam name="TItem">The generic type of the queue.</typeparam>
         /// <param name="queue">A queue object.</param>

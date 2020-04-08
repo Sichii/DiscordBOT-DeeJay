@@ -2,8 +2,8 @@
 using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Tasks;
-using DeeJay.Command;
 using DeeJay.Definitions;
+using DeeJay.DiscordModel;
 using Discord;
 using Discord.WebSocket;
 using NLog;
@@ -11,19 +11,19 @@ using NLog;
 namespace DeeJay.Model
 {
     /// <summary>
-    /// The bot's discord client. Used for interacting with discord.
+    ///     The bot's discord client. Used for interacting with discord.
     /// </summary>
     internal static class Client
     {
-        internal static ConcurrentDictionary<ulong, GuildMusicService> Services { get; }
-        internal static DiscordSocketClient SocketClient { get; }
         private static readonly string Token;
         private static readonly Logger Log;
+        internal static ConcurrentDictionary<ulong, MusicService> Services { get; }
+        internal static DiscordSocketClient SocketClient { get; }
 
         static Client()
         {
             Token = File.ReadAllText(CONSTANTS.TOKEN_PATH);
-            Services = new ConcurrentDictionary<ulong, GuildMusicService>();
+            Services = new ConcurrentDictionary<ulong, MusicService>();
             SocketClient = new DiscordSocketClient(new DiscordSocketConfig { LogLevel = LogSeverity.Info });
             Log = LogManager.GetLogger("Client");
 
@@ -43,14 +43,14 @@ namespace DeeJay.Model
         }
 
         /// <summary>
-        /// Interceptor for logging messages from Discord.NET
+        ///     Interceptor for logging messages from Discord.NET
         /// </summary>
         /// <param name="severity">Specifies the severity of the log message.</param>
         /// <param name="message">The message to be logged.</param>
         /// <returns></returns>
         internal static Task LogMessage(LogSeverity severity, string message)
         {
-            switch(severity)
+            switch (severity)
             {
                 case LogSeverity.Critical:
                 case LogSeverity.Error:

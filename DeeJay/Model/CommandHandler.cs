@@ -1,19 +1,20 @@
 ﻿using System;
 using System.Threading.Tasks;
-using DeeJay.Model;
+using DeeJay.DiscordModel;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
 using NLog;
 
-namespace DeeJay.Command
+namespace DeeJay.Model
 {
     /// <summary>
-    /// Handles commands that appear in any server that the bot is part of.
+    ///     Handles commands that appear in any server that the bot is part of.
     /// </summary>
     public static class CommandHandler
     {
         private static readonly Logger Log = LogManager.GetLogger("CommandHandler");
+
         private static readonly CommandService CommandService = new CommandService(new CommandServiceConfig
         {
             LogLevel = LogSeverity.Info,
@@ -36,15 +37,15 @@ namespace DeeJay.Command
             {
                 Log.Debug($"Creating new service and module for guild {context.Guild.Id}.");
                 //create the music service and store it under the guild id
-                musicService = new GuildMusicService(context.Guild.Id);
+                musicService = new MusicService(context.Guild.Id);
 
-                if(Client.Services.IsEmpty)
+                if (Client.Services.IsEmpty)
                     await CommandService.AddModuleAsync<CommandModule>(musicService);
 
                 Client.Services[context.Guild.Id] = musicService;
             }
 
-            var guildLog = LogManager.GetLogger($"CommandModule-{context.Guild.Id.ToString()}");
+            var guildLog = LogManager.GetLogger($"CmdMod-{context.Guild.Id.ToString()}");
 
             //pos will be the place we're at in the message after we check for the command prefix
             var pos = 0;
