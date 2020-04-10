@@ -66,7 +66,7 @@ namespace DeeJay.DiscordModel
                 }
 
                 //if this song title is already in queue, dont queue it, cancel the data task
-                if (MusicService.SongQueue.Any(innerSong => innerSong.ResultFrom.Query.EqualsI(song.Title)))
+                if (MusicService.SongQueue.Any(innerSong => innerSong.Title.EqualsI(song.Title)))
                 {
                     await searchMsg.ModifyAsync(msg => msg.Content = Warn($"{song.Title} was already queued.", logStr));
                     song.Canceller.Cancel();
@@ -74,20 +74,25 @@ namespace DeeJay.DiscordModel
                     return;
                 }
 
+                if (MusicService.SongQueue.Count < 3)
+                    song.TrySetData();
+
                 MusicService.SongQueue.Enqueue(song);
 
                 //if we're not inf a voice channel, join the caller's channel
-                if (MusicService.VoiceChannel == null)
-                    await Come();
+                if (!MusicService.InVoice)
+                    await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
 
                 //if we're not currently playing audio, play the next song
                 if (!MusicService.Playing)
                 {
-                    await Come();
-                    await Play();
+                    await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
+                    await MusicService.PlayAsync();
                 } else //otherwise let them know it's queued up
                     await searchMsg.ModifyAsync(msg =>
                         msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!", logStr));
+
+                await searchMsg.ModifyAsync(msg => msg.Embed = null);
             }
         }
 
@@ -115,7 +120,7 @@ namespace DeeJay.DiscordModel
                 return;
             }
 
-            await Come();
+            await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
             await MusicService.PlayAsync();
         }
 
@@ -170,7 +175,7 @@ namespace DeeJay.DiscordModel
             if (await MusicService.PauseSongAsync(out var song))
                 Info($"Pausing {song.Title}", logStr);
 
-            if (MusicService.VoiceChannel != null)
+            if (MusicService.InVoice)
             {
                 Info($"Leaving {MusicService.VoiceChannel.Name}", logStr);
                 await MusicService.LeaveVoiceAsync();
@@ -296,17 +301,5 @@ namespace DeeJay.DiscordModel
 
             return RespondAsync(builder.ToString());
         }
-
-        /*DirectRespond($"COMMAND | ALIASES [arguments] -- DESCRIPTION{Environment.NewLine}" +
-                          $"!queue | !q [song name] -- queues the first youtube result{Environment.NewLine}" +
-                          $"!play | !start -- begins playback in current voice channel{Environment.NewLine}" +
-                          $"!pause | !stop -- stops playback of current song{Environment.NewLine}" +
-                          $"!skis -- skips the current song and begins playback of the next{Environment.NewLine}" +
-                          $"!come -- joins your voice channel{Environment.NewLine}" +
-                          $"!leave -- leaves voice channel{Environment.NewLine}" +
-                          $"!showsong -- displays this song's information and progress{Environment.NewLine}" +
-                          $"!shownext -- displays the next song's information{Environment.NewLine}" +
-                          $"!showqueue | !showq -- dms you info on all songs in the queue{Environment.NewLine}" +
-                          $"!help | !commands -- this, obviously{Environment.NewLine}");*/
     }
 }

@@ -44,10 +44,7 @@ namespace DeeJay.Model
         {
             if (Services.TryGetValue(guildId, out var musicService) && musicService.Playing)
             {
-                var channel = SocketClient.GetGuild(guildId)
-                    .GetVoiceChannel(musicService.VoiceChannel.Id);
-
-                await musicService.JoinVoiceAsync(channel);
+                await musicService.JoinVoiceAsync(musicService.VoiceChannel);
                 await musicService.PlayAsync();
                 Log.Error($"Reconnecting and resuming playback for {guildId}-{musicService.VoiceChannel.Name}");
             }

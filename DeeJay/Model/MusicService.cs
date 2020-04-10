@@ -19,16 +19,15 @@ namespace DeeJay.Model
         private readonly Logger Log;
         internal CancellationTokenSource CancellationTokenSource { get; set; }
         internal Task PlayingTask { get; set; }
-        internal IVoiceChannel VoiceChannel { get; set; }
         internal IAudioClient AudioClient { get; set; }
+        internal ulong VoiceChannelId { get; set; }
         internal ulong DesignatedChannelId { get; set; }
         internal ulong GuildId { get; }
 
-        internal ISocketMessageChannel DesignatedChannel =>
-            DesignatedChannelId != 0
-                ? Client.SocketClient.GetGuild(GuildId)
-                    .GetTextChannel(DesignatedChannelId)
-                : default;
+        internal SocketTextChannel DesignatedChannel => DesignatedChannelId != 0 ? Guild?.GetTextChannel(DesignatedChannelId) : default;
+        internal SocketVoiceChannel VoiceChannel => VoiceChannelId != 0 ? Guild?.GetVoiceChannel(VoiceChannelId) : default;
+        internal SocketGuild Guild => GuildId != 0 ? Client.SocketClient.GetGuild(GuildId) : default;
+        internal bool InVoice => VoiceChannelId != 0;
 
         internal ConcurrentQueue<Song> SongQueue { get; }
         internal bool Playing => PlayingTask?.Status == TaskStatus.WaitingForActivation;
@@ -47,10 +46,10 @@ namespace DeeJay.Model
         /// <param name="channel"></param>
         internal async Task JoinVoiceAsync(IVoiceChannel channel)
         {
-            if (VoiceChannel != channel)
+            if (VoiceChannelId != channel.Id)
             {
                 await PauseSongAsync(out _);
-                VoiceChannel = channel;
+                VoiceChannelId = channel.Id;
                 AudioClient = await channel.ConnectAsync();
             }
         }
@@ -64,7 +63,7 @@ namespace DeeJay.Model
             await (VoiceChannel?.DisconnectAsync() ?? Task.CompletedTask);
             AudioClient?.Dispose();
 
-            VoiceChannel = null;
+            VoiceChannelId = 0;
             AudioClient = null;
         }
 
