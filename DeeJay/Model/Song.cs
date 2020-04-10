@@ -13,8 +13,8 @@ namespace DeeJay.Model
     /// </summary>
     internal sealed class Song
     {
-        private readonly SemaphoreSlim Sync = new SemaphoreSlim(1, 1);
         private readonly TaskCompletionSource<MemoryStream> DataSource;
+        private readonly SemaphoreSlim Sync = new SemaphoreSlim(1, 1);
         internal Task<MemoryStream> DataTask { get; private set; }
         internal Stopwatch Progress { get; }
         internal SocketUser RequestedBy { get; }
@@ -95,7 +95,8 @@ namespace DeeJay.Model
                     {
                         FileName = CONSTANTS.FFMPEG_PATH,
                         //no text, seek to previously elapsed if necessary, 2 channel, 75% volume, pcm s16le stream format, 48000hz, pipe 1
-                        Arguments = $"-hide_banner -loglevel quiet -i \"{DirectLink}\" -ac 2 -af volume=0.1 -f s16le -ar 48000 pipe:1",
+                        Arguments =
+                            $"-hide_banner -loglevel quiet -i \"{DirectLink}\" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.15\" -f s16le -ar 48000 pipe:1",
                         CreateNoWindow = true,
                         UseShellExecute = false,
                         RedirectStandardOutput = true

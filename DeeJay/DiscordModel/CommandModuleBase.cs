@@ -2,7 +2,6 @@
 using DeeJay.Model;
 using Discord;
 using Discord.Commands;
-using Discord.WebSocket;
 using NLog;
 
 namespace DeeJay.DiscordModel
@@ -12,7 +11,8 @@ namespace DeeJay.DiscordModel
         private readonly Logger Log;
         protected readonly MusicService MusicService;
 
-        protected bool IsDesignatedChannel => MusicService.DesignatedChannel == null || Context.Channel == MusicService.DesignatedChannel;
+        protected bool IsDesignatedChannel =>
+            MusicService.DesignatedChannelId == 0 || Context.Channel.Id == MusicService.DesignatedChannelId;
 
         protected CommandModuleBase(MusicService musicService)
         {

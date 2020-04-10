@@ -30,7 +30,27 @@ namespace DeeJay.Model
             //set up the discord client to log things and act on messages people send
             SocketClient.Log += msg => LogMessage(msg.Severity, msg.Message);
             SocketClient.MessageReceived += CommandHandler.TryHandleAsync;
+            SocketClient.Connected += () =>
+            {
+                foreach (var kvp in Services)
+                    Reconnect(kvp.Key);
+                return Task.CompletedTask;
+            };
+
             SocketClient.Ready += () => SocketClient.SetActivityAsync(new DiscordActivity("hard to get (!help)", ActivityType.Playing));
+        }
+
+        internal static async void Reconnect(ulong guildId)
+        {
+            if (Services.TryGetValue(guildId, out var musicService) && musicService.Playing)
+            {
+                var channel = SocketClient.GetGuild(guildId)
+                    .GetVoiceChannel(musicService.VoiceChannel.Id);
+
+                await musicService.JoinVoiceAsync(channel);
+                await musicService.PlayAsync();
+                Log.Error($"Reconnecting and resuming playback for {guildId}-{musicService.VoiceChannel.Name}");
+            }
         }
 
         /// <summary>

@@ -13,14 +13,14 @@ namespace DeeJay.Model
     /// </summary>
     public static class CommandHandler
     {
-        private static readonly Logger Log = LogManager.GetLogger("CommandHandler");
-
-        private static readonly CommandService CommandService = new CommandService(new CommandServiceConfig
+        internal static readonly CommandService CommandService = new CommandService(new CommandServiceConfig
         {
             LogLevel = LogSeverity.Info,
             CaseSensitiveCommands = false,
             DefaultRunMode = RunMode.Async
         });
+
+        private static readonly Logger Log = LogManager.GetLogger("CommandHandler");
 
         /// <summary>
         ///     Parse input. If it's a command, executes relevant method.

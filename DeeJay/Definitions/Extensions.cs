@@ -32,6 +32,88 @@ namespace DeeJay.Definitions
         }
 
         /// <summary>
+        ///     Calculates the pixel width of a string.
+        /// </summary>
+        /// <param name="str">A string object.</param>
+        internal static float CalculateWidth(this string str) =>
+            CONSTANTS.GRAPHICS.MeasureString(str, CONSTANTS.WHITNEY_FONT)
+                .Width;
+
+        /// <summary>
+        ///     Normalizes the widths of all strings in the collection by adding spaces to shorter strings so that they match the
+        ///     pixel width of longer strings.
+        /// </summary>
+        /// <param name="strings">An IEnumerable of strings.</param>
+        /// <param name="alignment">The type of alignment to perform while normalizing widths.</param>
+        internal static IEnumerable<string> NormalizeWidth(this IEnumerable<string> strings, TextAlignment alignment)
+        {
+            var enumerable = strings as string[] ?? strings.ToArray();
+            var widths = enumerable.Select(str => str.CalculateWidth())
+                .ToArray();
+            var maxWidth = widths.Max();
+
+            for (var i = 0; i < enumerable.Length; i++)
+            {
+                var str = enumerable[i];
+                var width = widths[i];
+
+                if (width < maxWidth)
+                {
+                    var spacesToAdd = (int) Math.Round((maxWidth - width) / CONSTANTS.SPACE_LENGTH, MidpointRounding.AwayFromZero);
+
+                    switch (alignment)
+                    {
+                        case TextAlignment.LeftAlign:
+                            yield return string.Create(spacesToAdd + str.Length, str, (chars, state) =>
+                            {
+                                state.AsSpan()
+                                    .CopyTo(chars);
+
+                                var position = str.Length;
+
+                                for (var x = 0; x < chars.Length - str.Length; x++)
+                                    chars[position++] = ' ';
+                            });
+                            break;
+                        case TextAlignment.Center:
+                            yield return string.Create(spacesToAdd + str.Length, str, (chars, state) =>
+                            {
+                                var position = 0;
+                                var spacesPerSide = (int) Math.Round((chars.Length - (float) str.Length) / 2, MidpointRounding.ToEven);
+
+                                for (; position < spacesPerSide; position++)
+                                    chars[position] = ' ';
+
+                                state.AsSpan()
+                                    .CopyTo(chars.Slice(position));
+
+                                position += state.Length;
+
+                                for (; position < chars.Length; position++)
+                                    chars[position] = ' ';
+                            });
+                            break;
+                        case TextAlignment.RightAlign:
+                            yield return string.Create(spacesToAdd + str.Length, str, (chars, state) =>
+                            {
+                                var position = 0;
+
+                                for (; position < chars.Length - str.Length; position++)
+                                    chars[position] = ' ';
+
+                                state.AsSpan()
+                                    .CopyTo(chars.Slice(position));
+                            });
+                            break;
+                        default:
+                            throw new ArgumentOutOfRangeException(nameof(alignment), alignment, null);
+                    }
+                } else
+                    yield return str;
+            }
+        }
+
+        /// <summary>
         ///     Detects the bitrate of the audio, and seeks to the specified time in the song.
         ///     <inheritdoc cref="Stream.Seek" />
         /// </summary>

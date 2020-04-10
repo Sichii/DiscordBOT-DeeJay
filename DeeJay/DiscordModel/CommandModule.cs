@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
 using DeeJay.Model;
@@ -16,12 +18,12 @@ namespace DeeJay.DiscordModel
         public CommandModule(MusicService musicService)
             : base(musicService) { }
 
-        [Command("designate")]
+        [Command("designate"), Summary("Only accept commands from a channel")]
         public Task Designate()
         {
-            if (MusicService.DesignatedChannel != null || Context.User.Username.EqualsI("sichi"))
+            if (MusicService.DesignatedChannelId != 0 || Context.User.Username.EqualsI("sichi"))
             {
-                MusicService.DesignatedChannel = Context.Channel;
+                MusicService.DesignatedChannelId = Context.Channel.Id;
                 return RespondAsync(
                     $"{Context.Channel.Name} is now the designated music channel for {Context.Guild.Name}. Ignoring commands in other channels.");
             }
@@ -29,7 +31,7 @@ namespace DeeJay.DiscordModel
             return Task.CompletedTask;
         }
 
-        [Command("queue"), Alias("q")]
+        [Command("q"), Summary("Executes a youtube search and enqueues the first result")]
         public async Task Queue([Remainder] string songName = default)
         {
             if (!IsDesignatedChannel)
@@ -84,11 +86,12 @@ namespace DeeJay.DiscordModel
                     await Come();
                     await Play();
                 } else //otherwise let them know it's queued up
-                    await searchMsg.ModifyAsync(msg => msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!", logStr));
+                    await searchMsg.ModifyAsync(msg =>
+                        msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!", logStr));
             }
         }
 
-        [Command("play")]
+        [Command("play"), Summary("Begins playback of the current song")]
         public async Task Play()
         {
             if (!IsDesignatedChannel)
@@ -116,7 +119,7 @@ namespace DeeJay.DiscordModel
             await MusicService.PlayAsync();
         }
 
-        [Command("pause")]
+        [Command("pause"), Summary("Pauses playback of the current song")]
         public async Task Pause()
         {
             if (!IsDesignatedChannel)
@@ -130,7 +133,7 @@ namespace DeeJay.DiscordModel
                 Warn("Attempted to pause when not already playing.", logStr);
         }
 
-        [Command("skip")]
+        [Command("skip"), Summary("Skips the current song")]
         public async Task Skip()
         {
             if (!IsDesignatedChannel)
@@ -144,7 +147,7 @@ namespace DeeJay.DiscordModel
                 Warn($"{logStr} Attempted to skip when not already playing.");
         }
 
-        [Command("come")]
+        [Command("come"), Summary("Makes the bot join your voice channel")]
         public async Task Come()
         {
             if (!IsDesignatedChannel)
@@ -156,7 +159,7 @@ namespace DeeJay.DiscordModel
             Info($"Joining {MusicService.VoiceChannel.Name}", logStr);
         }
 
-        [Command("leave")]
+        [Command("leave"), Summary("Makes the bot leave it's voice channel")]
         public async Task Leave()
         {
             if (!IsDesignatedChannel)
@@ -175,7 +178,7 @@ namespace DeeJay.DiscordModel
                 Warn("Attempting to leave voice channel when not in one.", logStr);
         }
 
-        [Command("show"), Alias("song")]
+        [Command("show"), Summary("Displays info about the current song")]
         public Task ShowSong()
         {
             if (!IsDesignatedChannel)
@@ -193,7 +196,7 @@ namespace DeeJay.DiscordModel
             return Task.CompletedTask;
         }
 
-        [Command("shownext"), Alias("next")]
+        [Command("shownext"), Summary("Displays info about the next song")]
         public async Task ShowNext()
         {
             if (!IsDesignatedChannel)
@@ -211,7 +214,7 @@ namespace DeeJay.DiscordModel
                 Warn("Attempting to show next song info when there is no next song.", logStr);
         }
 
-        [Command("showqueue"), Alias("showq")]
+        [Command("showq"), Summary("Displays info about all songs in the queue")]
         public async Task ShowQueue()
         {
             if (!IsDesignatedChannel)
@@ -230,29 +233,29 @@ namespace DeeJay.DiscordModel
                 Warn("Attempting to display song queue when no songs are in queue.", logStr);
         }
 
-        [Command("remove")]
-        public async Task Remove([Remainder] string arg = default)
+        [Command("remove"), Summary("Removes a song from the queue at a given index")]
+        public async Task Remove([Remainder] string songIndex = default)
         {
             if (!IsDesignatedChannel)
                 return;
 
             var logStr = $"[Command:{nameof(Remove)}][RequestedBy:{Context.User.Username}]";
 
-            if (int.TryParse(arg, out var index))
+            if (int.TryParse(songIndex, out var index))
             {
                 var song = await MusicService.RemoveSongAsync(index);
 
                 if (song != null)
                     await RespondAsync($"Removed {song} from the queue.", logStr);
                 else
-                    await RespondAsync($"No song found at index {arg}", logStr);
+                    await RespondAsync($"No song found at index {songIndex}", logStr);
             } else
-                Warn($"Argument supplied is not an integer. ({arg})", logStr);
+                Warn($"Argument supplied is not an integer. ({songIndex})", logStr);
 
             await Task.CompletedTask;
         }
 
-        [Command("clear")]
+        [Command("clear"), Summary("Clears all songs from the queue")]
         public async Task Clear()
         {
             if (!IsDesignatedChannel)
@@ -267,9 +270,34 @@ namespace DeeJay.DiscordModel
             MusicService.SongQueue.Clear();
         }
 
-        [Command("help"), Alias("commands")]
-        public Task Help() =>
-            DirectRespond($"COMMAND | ALIASES [arguments] -- DESCRIPTION{Environment.NewLine}" +
+        [Command("help"), Alias("commands"), Summary("The message you're currently reading")]
+        public Task Help()
+        {
+            var commands = CommandHandler.CommandService.Commands.ToArray();
+            var builder = new StringBuilder();
+
+            string CreateParamStr(CommandInfo cmdInfo) =>
+                cmdInfo.Parameters.Count > 0 ? $"<{string.Join("> ", cmdInfo.Parameters)}>" : "--";
+
+            var names = new List<string> { "COMMAND" };
+            var parameters = new List<string> { "PARAMETERS" };
+            var summaries = new List<string> { "SUMMARY" };
+
+            names.AddRange(commands.Select(cmd => '!' + cmd.Name));
+            names = names.NormalizeWidth(TextAlignment.LeftAlign)
+                .ToList();
+            parameters.AddRange(commands.Select(CreateParamStr));
+            parameters = parameters.NormalizeWidth(TextAlignment.Center)
+                .ToList();
+            summaries.AddRange(commands.Select(cmd => cmd.Summary));
+
+            for (var i = 0; i < names.Count; i++)
+                builder.AppendLine($"{names[i]}\t\t{parameters[i]}\t\t{summaries[i]}");
+
+            return RespondAsync(builder.ToString());
+        }
+
+        /*DirectRespond($"COMMAND | ALIASES [arguments] -- DESCRIPTION{Environment.NewLine}" +
                           $"!queue | !q [song name] -- queues the first youtube result{Environment.NewLine}" +
                           $"!play | !start -- begins playback in current voice channel{Environment.NewLine}" +
                           $"!pause | !stop -- stops playback of current song{Environment.NewLine}" +
@@ -279,6 +307,6 @@ namespace DeeJay.DiscordModel
                           $"!showsong -- displays this song's information and progress{Environment.NewLine}" +
                           $"!shownext -- displays the next song's information{Environment.NewLine}" +
                           $"!showqueue | !showq -- dms you info on all songs in the queue{Environment.NewLine}" +
-                          $"!help | !commands -- this, obviously{Environment.NewLine}");
+                          $"!help | !commands -- this, obviously{Environment.NewLine}");*/
     }
 }

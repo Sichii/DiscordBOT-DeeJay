@@ -20,9 +20,16 @@ namespace DeeJay.Model
         internal CancellationTokenSource CancellationTokenSource { get; set; }
         internal Task PlayingTask { get; set; }
         internal IVoiceChannel VoiceChannel { get; set; }
-        internal ISocketMessageChannel DesignatedChannel { get; set; }
         internal IAudioClient AudioClient { get; set; }
+        internal ulong DesignatedChannelId { get; set; }
         internal ulong GuildId { get; }
+
+        internal ISocketMessageChannel DesignatedChannel =>
+            DesignatedChannelId != 0
+                ? Client.SocketClient.GetGuild(GuildId)
+                    .GetTextChannel(DesignatedChannelId)
+                : default;
+
         internal ConcurrentQueue<Song> SongQueue { get; }
         internal bool Playing => PlayingTask?.Status == TaskStatus.WaitingForActivation;
 
@@ -110,7 +117,7 @@ namespace DeeJay.Model
                 var token = CancellationTokenSource.Token;
                 var dataStream = await song.DataTask;
 
-                await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int)BitRate.b128k);
+                await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int) BitRate.b128k);
 
                 //seek if we paused
                 if (song.Progress.Elapsed > TimeSpan.Zero)
@@ -120,8 +127,7 @@ namespace DeeJay.Model
                 {
                     song.Progress.Start();
 
-                    if (DesignatedChannel != null)
-                        await DesignatedChannel.SendMessageAsync($"Now playing {song.ToString(false)}");
+                    await (DesignatedChannel?.SendMessageAsync($"Now playing {song.ToString(false)}") ?? Task.CompletedTask);
 
                     await dataStream.CopyToAsync(audioStream, CancellationTokenSource.Token);
                 } finally
