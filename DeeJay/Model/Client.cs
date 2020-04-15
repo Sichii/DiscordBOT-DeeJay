@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
 using DeeJay.DiscordModel;
+using DeeJay.Model.Services;
 using Discord;
 using Discord.WebSocket;
 using NLog;
@@ -17,13 +18,13 @@ namespace DeeJay.Model
     {
         private static readonly string Token;
         private static readonly Logger Log;
-        internal static ConcurrentDictionary<ulong, MusicService> Services { get; }
+        internal static ConcurrentDictionary<ulong, ServiceProvider> Providers { get; }
         internal static DiscordSocketClient SocketClient { get; }
 
         static Client()
         {
             Token = File.ReadAllText(CONSTANTS.TOKEN_PATH);
-            Services = new ConcurrentDictionary<ulong, MusicService>();
+            Providers = new ConcurrentDictionary<ulong, ServiceProvider>();
             SocketClient = new DiscordSocketClient(new DiscordSocketConfig { LogLevel = LogSeverity.Info });
             Log = LogManager.GetLogger("Client");
 
@@ -32,22 +33,13 @@ namespace DeeJay.Model
             SocketClient.MessageReceived += CommandHandler.TryHandleAsync;
             SocketClient.Connected += () =>
             {
-                foreach (var kvp in Services)
-                    Reconnect(kvp.Key);
+                foreach (var kvp in Providers)
+                    kvp.Value.Reconnect();
+
                 return Task.CompletedTask;
             };
 
             SocketClient.Ready += () => SocketClient.SetActivityAsync(new DiscordActivity("hard to get (!help)", ActivityType.Playing));
-        }
-
-        internal static async void Reconnect(ulong guildId)
-        {
-            if (Services.TryGetValue(guildId, out var musicService) && musicService.Playing)
-            {
-                await musicService.JoinVoiceAsync(musicService.VoiceChannel);
-                await musicService.PlayAsync();
-                Log.Error($"Reconnecting and resuming playback for {guildId}-{musicService.VoiceChannel.Name}");
-            }
         }
 
         /// <summary>

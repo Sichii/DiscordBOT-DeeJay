@@ -4,19 +4,29 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
+using DeeJay.DiscordModel.Attributes;
 using DeeJay.Model;
-using Discord;
+using DeeJay.Model.Services;
+using DeeJay.Model.YouTube;
 using Discord.Commands;
+using NLog;
 
-namespace DeeJay.DiscordModel
+namespace DeeJay.DiscordModel.Modules
 {
     /// <summary>
     ///     A module that accepts a music service, and handles commands per-server.
     /// </summary>
-    public class CommandModule : CommandModuleBase
+    [Name(nameof(MusicModule)), RequireContext(ContextType.Guild), RequireDesignation, RequireVoiceChannel]
+    public class MusicModule : CommandModuleBase
     {
-        public CommandModule(MusicService musicService)
-            : base(musicService) { }
+        private readonly MusicService MusicService;
+        protected override Logger Log { get; }
+
+        public MusicModule(MusicService musicService)
+        {
+            Log = LogManager.GetLogger($"MusMod-{musicService.GuildId}");
+            MusicService = musicService;
+        }
 
         [Command("designate"), Summary("Only accept commands from a channel")]
         public Task Designate()
@@ -34,9 +44,6 @@ namespace DeeJay.DiscordModel
         [Command("q"), Summary("Executes a youtube search and enqueues the first result")]
         public async Task Queue([Remainder] string songName = default)
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Queue)}][RequestedBy:{Context.User.Username}]";
 
             //check validity of song name
@@ -81,17 +88,16 @@ namespace DeeJay.DiscordModel
 
                 //if we're not inf a voice channel, join the caller's channel
                 if (!MusicService.InVoice)
-                    await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
+                    await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
 
                 //if we're not currently playing audio, play the next song
                 if (!MusicService.Playing)
                 {
-                    await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
+                    await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
                     await MusicService.PlayAsync();
-                } else //otherwise let them know it's queued up
-                    await searchMsg.ModifyAsync(msg =>
-                        msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!", logStr));
+                }
 
+                await searchMsg.ModifyAsync(msg => msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!", logStr));
                 await searchMsg.ModifyAsync(msg => msg.Embed = null);
             }
         }
@@ -99,9 +105,6 @@ namespace DeeJay.DiscordModel
         [Command("play"), Summary("Begins playback of the current song")]
         public async Task Play()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Play)}][RequestedBy:{Context.User.Username}]";
 
             //if we're already playing music then return
@@ -120,16 +123,13 @@ namespace DeeJay.DiscordModel
                 return;
             }
 
-            await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
+            await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
             await MusicService.PlayAsync();
         }
 
         [Command("pause"), Summary("Pauses playback of the current song")]
         public async Task Pause()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Pause)}][RequestedBy:{Context.User.Username}]";
 
             if (await MusicService.PauseSongAsync(out var song))
@@ -141,9 +141,6 @@ namespace DeeJay.DiscordModel
         [Command("skip"), Summary("Skips the current song")]
         public async Task Skip()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Skip)}][RequestedBy:{Context.User.Username}]";
 
             if (await MusicService.SkipSongAsync(out var songTask))
@@ -155,21 +152,15 @@ namespace DeeJay.DiscordModel
         [Command("come"), Summary("Makes the bot join your voice channel")]
         public async Task Come()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Come)}][RequestedBy:{Context.User.Username}]";
 
-            await MusicService.JoinVoiceAsync(((IVoiceState) Context.User).VoiceChannel);
+            await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
             Info($"Joining {MusicService.VoiceChannel.Name}", logStr);
         }
 
         [Command("leave"), Summary("Makes the bot leave it's voice channel")]
         public async Task Leave()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Leave)}][RequestedBy:{Context.User.Username}]";
 
             if (await MusicService.PauseSongAsync(out var song))
@@ -186,9 +177,6 @@ namespace DeeJay.DiscordModel
         [Command("show"), Summary("Displays info about the current song")]
         public Task ShowSong()
         {
-            if (!IsDesignatedChannel)
-                return Task.CompletedTask;
-
             var logStr = $"[Command:{nameof(ShowSong)}][RequestedBy:{Context.User.Username}]";
 
             if (MusicService.SongQueue.TryPeek(out var song))
@@ -204,9 +192,6 @@ namespace DeeJay.DiscordModel
         [Command("shownext"), Summary("Displays info about the next song")]
         public async Task ShowNext()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(ShowNext)}][RequestedBy:{Context.User.Username}]";
 
             if (MusicService.SongQueue.Count > 1)
@@ -222,9 +207,6 @@ namespace DeeJay.DiscordModel
         [Command("showq"), Summary("Displays info about all songs in the queue")]
         public async Task ShowQueue()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(ShowQueue)}][RequestedBy:{Context.User.Username}]";
 
             if (MusicService.SongQueue.Count > 0)
@@ -241,9 +223,6 @@ namespace DeeJay.DiscordModel
         [Command("remove"), Summary("Removes a song from the queue at a given index")]
         public async Task Remove([Remainder] string songIndex = default)
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Remove)}][RequestedBy:{Context.User.Username}]";
 
             if (int.TryParse(songIndex, out var index))
@@ -263,9 +242,6 @@ namespace DeeJay.DiscordModel
         [Command("clear"), Summary("Clears all songs from the queue")]
         public async Task Clear()
         {
-            if (!IsDesignatedChannel)
-                return;
-
             var logStr = $"[Command:{nameof(Clear)}][RequestedBy:{Context.User.Username}]";
 
             if (await MusicService.PauseSongAsync(out var song))

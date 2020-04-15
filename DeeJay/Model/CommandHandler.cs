@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
-using DeeJay.DiscordModel;
+using DeeJay.DiscordModel.Modules;
+using DeeJay.Model.Services;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
@@ -32,17 +33,17 @@ namespace DeeJay.Model
             var msg = (SocketUserMessage) message;
             var context = new SocketCommandContext(client, msg);
 
-            //if we dont have a music service for this guild
-            if (!Client.Services.TryGetValue(context.Guild.Id, out var musicService))
+            //if we dont have a serviceprovider for this guild
+            if (!Client.Providers.TryGetValue(context.Guild.Id, out var serviceProvider))
             {
                 Log.Debug($"Creating new service and module for guild {context.Guild.Id}.");
-                //create the music service and store it under the guild id
-                musicService = new MusicService(context.Guild.Id);
+                //create the serviceprovider and store it under the guild id
+                serviceProvider = new ServiceProvider(context.Guild.Id);
 
-                if (Client.Services.IsEmpty)
-                    await CommandService.AddModuleAsync<CommandModule>(musicService);
+                if (Client.Providers.IsEmpty)
+                    await CommandService.AddModuleAsync<MusicModule>(serviceProvider);
 
-                Client.Services[context.Guild.Id] = musicService;
+                Client.Providers[context.Guild.Id] = serviceProvider;
             }
 
             var guildLog = LogManager.GetLogger($"CmdMod-{context.Guild.Id.ToString()}");
@@ -56,8 +57,8 @@ namespace DeeJay.Model
                 try
                 {
                     guildLog.Info($"Executing command {msg.Content}");
-                    //if it is, try to execute the command using music service
-                    var result = await CommandService.ExecuteAsync(context, pos, musicService, MultiMatchHandling.Best);
+                    //if it is, try to execute the command using serviceprovider
+                    var result = await CommandService.ExecuteAsync(context, pos, serviceProvider, MultiMatchHandling.Best);
 
                     //print errors
                     if (!result.IsSuccess)

@@ -5,7 +5,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using DeeJay.Model;
+using DeeJay.Model.YouTube;
+using Discord;
 
 namespace DeeJay.Definitions
 {
@@ -17,6 +18,20 @@ namespace DeeJay.Definitions
         internal static bool ContainsI(this string str1, string str2) => str1.IndexOf(str2, StringComparison.OrdinalIgnoreCase) != -1;
 
         internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        ///     Gets the voice channel the user is in, if theyre in one.
+        /// </summary>
+        /// <param name="user">An IUser object.</param>
+        internal static IVoiceChannel GetVoiceChannel(this IUser user) =>
+            user is IVoiceState voiceState ? voiceState.VoiceChannel : default;
+
+        /// <summary>
+        ///     Checks if a string is a valid URI.
+        /// </summary>
+        /// <param name="str">A string object.</param>
+        internal static bool IsValidURI(this string str) =>
+            !string.IsNullOrWhiteSpace(str) && Uri.TryCreate(str, UriKind.Absolute, out var result) && result.Scheme.Contains("http");
 
         /// <summary>
         ///     Converts a timespan into a more easily readable string.
@@ -141,7 +156,7 @@ namespace DeeJay.Definitions
             if (readOutput)
                 process.StartInfo.RedirectStandardOutput = true;
             process.EnableRaisingEvents = true;
-            process.Exited += (s, e) => source.SetResult(true);
+            process.Exited += (s, e) => source.TrySetResult(true);
             process.Start();
             process.BeginOutputReadLine();
 

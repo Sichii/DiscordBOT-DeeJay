@@ -1,24 +1,16 @@
 ﻿using System.Threading.Tasks;
-using DeeJay.Model;
 using Discord;
 using Discord.Commands;
 using NLog;
 
 namespace DeeJay.DiscordModel
 {
+    /// <summary>
+    ///     Custom base class to handle logging and other common things done in a module.
+    /// </summary>
     public abstract class CommandModuleBase : ModuleBase<SocketCommandContext>
     {
-        private readonly Logger Log;
-        protected readonly MusicService MusicService;
-
-        protected bool IsDesignatedChannel =>
-            MusicService.DesignatedChannelId == 0 || Context.Channel.Id == MusicService.DesignatedChannelId;
-
-        protected CommandModuleBase(MusicService musicService)
-        {
-            MusicService = musicService;
-            Log = LogManager.GetLogger($"CmdServ-{MusicService.GuildId.ToString()}");
-        }
+        protected abstract Logger Log { get; }
 
         protected string Error(string errorMsg, string logPrefix = null)
         {

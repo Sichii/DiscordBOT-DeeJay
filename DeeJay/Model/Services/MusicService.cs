@@ -4,33 +4,33 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
+using DeeJay.Interface;
+using DeeJay.Model.YouTube;
 using Discord;
 using Discord.Audio;
 using Discord.WebSocket;
 using NLog;
 
-namespace DeeJay.Model
+namespace DeeJay.Model.Services
 {
     /// <summary>
     ///     A service that represents music playback for an individual discord server.
     /// </summary>
-    public class MusicService : IServiceProvider
+    public class MusicService : IConnectedService
     {
-        private readonly Logger Log;
         internal CancellationTokenSource CancellationTokenSource { get; set; }
         internal Task PlayingTask { get; set; }
         internal IAudioClient AudioClient { get; set; }
         internal ulong VoiceChannelId { get; set; }
         internal ulong DesignatedChannelId { get; set; }
-        internal ulong GuildId { get; }
+        internal bool Playing { get; private set; }
 
         internal SocketTextChannel DesignatedChannel => DesignatedChannelId != 0 ? Guild?.GetTextChannel(DesignatedChannelId) : default;
         internal SocketVoiceChannel VoiceChannel => VoiceChannelId != 0 ? Guild?.GetVoiceChannel(VoiceChannelId) : default;
         internal SocketGuild Guild => GuildId != 0 ? Client.SocketClient.GetGuild(GuildId) : default;
-        internal bool InVoice => VoiceChannelId != 0;
+        internal bool InVoice => AudioClient?.ConnectionState == ConnectionState.Connected;
 
         internal ConcurrentQueue<Song> SongQueue { get; }
-        internal bool Playing => PlayingTask?.Status == TaskStatus.WaitingForActivation;
 
         internal MusicService(ulong guildId)
         {
@@ -46,12 +46,12 @@ namespace DeeJay.Model
         /// <param name="channel"></param>
         internal async Task JoinVoiceAsync(IVoiceChannel channel)
         {
-            if (VoiceChannelId != channel.Id)
-            {
-                await PauseSongAsync(out _);
-                VoiceChannelId = channel.Id;
-                AudioClient = await channel.ConnectAsync();
-            }
+            if (channel == default || InVoice && VoiceChannelId == channel.Id)
+                return;
+
+            await PauseSongAsync(out _);
+            VoiceChannelId = channel.Id;
+            AudioClient = await channel.ConnectAsync();
         }
 
         /// <summary>
@@ -85,11 +85,13 @@ namespace DeeJay.Model
                         await PlayNextSongAsync();
                     } catch (OperationCanceledException)
                     {
+                        Playing = false;
                         await AudioClient.SetSpeakingAsync(false);
                         return;
                     }
                 else //otherwise exit this method
                 {
+                    Playing = false;
                     await AudioClient.SetSpeakingAsync(false);
                     return;
                 }
@@ -113,6 +115,7 @@ namespace DeeJay.Model
         {
             if (SongQueue.TryPeek(out var song))
             {
+                Playing = true;
                 var token = CancellationTokenSource.Token;
                 var dataStream = await song.DataTask;
 
@@ -186,11 +189,11 @@ namespace DeeJay.Model
                     await PlayAsync();
                     await outSong.DisposeAsync();
 
-                    source.SetResult(outSong);
+                    source.TrySetResult(outSong);
                     return true;
                 }
 
-                source.SetResult(default);
+                source.TrySetResult(default);
                 return false;
             }
 
@@ -221,7 +224,21 @@ namespace DeeJay.Model
             return result;
         }
 
-        /// <inheritdoc />
-        public object GetService(Type serviceType) => this;
+        public async Task Reconnect()
+        {
+            Log.Error($"Reconnecting and resuming playback for {GuildId}-{VoiceChannel.Name}");
+
+            if (Playing)
+            {
+                var channel = Client.SocketClient.GetGuild(GuildId)
+                    .GetVoiceChannel(VoiceChannelId);
+                await JoinVoiceAsync(channel);
+                await PlayAsync();
+            } else
+                await LeaveVoiceAsync();
+        }
+
+        public ulong GuildId { get; }
+        public Logger Log { get; }
     }
 }

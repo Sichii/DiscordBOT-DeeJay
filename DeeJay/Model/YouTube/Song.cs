@@ -6,15 +6,15 @@ using System.Threading.Tasks;
 using DeeJay.Definitions;
 using Discord.WebSocket;
 
-namespace DeeJay.Model
+namespace DeeJay.Model.YouTube
 {
     /// <summary>
     ///     A song in the queue.
     /// </summary>
     internal sealed class Song
     {
-        private readonly TaskCompletionSource<MemoryStream> DataSource;
         private readonly SemaphoreSlim Sync = new SemaphoreSlim(1, 1);
+        private TaskCompletionSource<MemoryStream> DataSource;
         internal Task<MemoryStream> DataTask { get; private set; }
         internal Stopwatch Progress { get; }
         internal SocketUser RequestedBy { get; }
@@ -68,6 +68,9 @@ namespace DeeJay.Model
             var result = await request.ExecuteAsync();
 
             if (result.Duration > CONSTANTS.MAX_DURATION)
+                result = await request.ExecuteAsync(true);
+
+            if (result.Duration > CONSTANTS.MAX_DURATION)
                 return new Song(requestedBy, result, result.Title, result.Duration,
                     $"{result.Title} duration too long. Duration: {result.Duration.ToReadableString()} MaxDuration: {CONSTANTS.MAX_DURATION.ToReadableString()}");
 
@@ -113,10 +116,10 @@ namespace DeeJay.Model
                 await ffmpeg.StandardOutput.BaseStream.CopyToAsync(dataStream, Canceller.Token);
 
                 dataStream.Position = 0;
-                DataSource.SetResult(dataStream);
+                DataSource.TrySetResult(dataStream);
             } catch
             {
-                DataSource?.SetResult(new MemoryStream());
+                DataSource?.TrySetResult(new MemoryStream());
             } finally
             {
                 Sync.Release();
@@ -140,6 +143,7 @@ namespace DeeJay.Model
                 DataTask?.Dispose();
             } finally
             {
+                DataSource = null;
                 DataTask = null;
                 GC.Collect();
             }
