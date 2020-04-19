@@ -11,26 +11,24 @@ namespace DeeJay.Discord.Attributes
     /// </summary>
     internal class RequirePrivilege : PreconditionAttributeBase
     {
-        private readonly PrivilegeLevel PrivilegeLevel;
+        private readonly Privilege Privilege;
 
-        internal RequirePrivilege(PrivilegeLevel privilegeLevel) => PrivilegeLevel = privilegeLevel;
+        internal RequirePrivilege(Privilege privilege) => Privilege = privilege;
 
         public override Task<PreconditionResult> CheckPermissionsAsync(
             ICommandContext context, CommandInfo command, IServiceProvider services)
         {
             var user = (SocketGuildUser) context.User;
             ErrorMessage =
-                $"{user.Username} does not have the required privilege({PrivilegeLevel.ToString()}) to run this command({command.Name}).";
+                $"{user.Username} does not have the required privilege({Privilege.ToString()}) to run this command({command.Name}).";
 
-            return PrivilegeLevel switch
+            return Privilege switch
             {
-                PrivilegeLevel.None   => Success,
-                PrivilegeLevel.Normal => (user.GuildPermissions.SendMessages && user.GuildPermissions.Connect ? Success : Error),
-                PrivilegeLevel.Elevated => (user.GuildPermissions.ManageChannels || user.GuildPermissions.KickMembers
-                    ? Success
-                    : Error),
-                PrivilegeLevel.Administrator => (user.GuildPermissions.Administrator ? Success : Error),
-                _                            => throw new ArgumentOutOfRangeException()
+                Privilege.None          => Success,
+                Privilege.Normal        => (user.GuildPermissions.SendMessages && user.GuildPermissions.Connect ? Success : Error),
+                Privilege.Elevated      => (user.GuildPermissions.ManageChannels || user.GuildPermissions.KickMembers ? Success : Error),
+                Privilege.Administrator => (user.GuildPermissions.Administrator ? Success : Error),
+                _                       => throw new ArgumentOutOfRangeException()
             };
         }
     }

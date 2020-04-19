@@ -32,7 +32,7 @@
     /// <summary>
     ///     Required privilege level.
     /// </summary>
-    internal enum PrivilegeLevel
+    internal enum Privilege
     {
         /// <summary>
         ///     No privilege required.

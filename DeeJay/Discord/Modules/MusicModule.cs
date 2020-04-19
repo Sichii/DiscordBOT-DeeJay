@@ -17,7 +17,7 @@ namespace DeeJay.Discord.Modules
     /// <summary>
     ///     A module that accepts a music service, and handles commands per-server.
     /// </summary>
-    [Name(nameof(MusicModule)), RequireContext(ContextType.Guild), RequireDesignation, RequireVoiceChannel]
+    [Name(nameof(MusicModule)), RequireContext(ContextType.Guild), RequireDesignation]
     public class MusicModule : DJModuleBase
     {
         private readonly MusicService MusicService;
@@ -29,7 +29,7 @@ namespace DeeJay.Discord.Modules
             MusicService = musicService;
         }
 
-        [Command("designate"), Summary("Only accept commands from a channel"), Attributes.RequirePrivilege(PrivilegeLevel.Elevated)]
+        [Command("designate"), Summary("Only accept commands from a channel"), Attributes.RequirePrivilege(Privilege.Elevated)]
         public Task Designate()
         {
             MusicService.DesignatedChannelId = Context.Channel.Id;
@@ -37,7 +37,34 @@ namespace DeeJay.Discord.Modules
                 $"{Context.Channel.Name} is now the designated music channel for {Context.Guild.Name}. Ignoring commands in other channels.");
         }
 
-        [Command("q"), Summary("Executes a youtube search and enqueues the first result")]
+        [Command("skip"), Summary("Skips the current song"), RequirePrivilege(Privilege.Elevated), RequireVoiceChannel]
+        public async Task Skip()
+        {
+            if (await MusicService.SkipAsync(out var songTask))
+                await RespondAsync($"Skipping {(await songTask).Title}");
+            else
+                Warn("Attempted to skip when not already playing.");
+        }
+
+        [Command("clear"), Summary("Clears all songs from the queue"), RequirePrivilege(Privilege.Elevated), RequireVoiceChannel]
+        public async Task Clear()
+        {
+            if (await MusicService.PauseAsync(out var song))
+                Info($"Pausing {song.Title}");
+
+            await RespondAsync("Clearing the queue.");
+            MusicService.SongQueue.Clear();
+        }
+
+        [Command("slowmode"), Summary("Only allows a specified number of songs in the queue per person."),
+         RequirePrivilege(Privilege.Elevated)]
+        public Task SlowMode(byte maxSongsPerUser = 0)
+        {
+            MusicService.SlowMode = maxSongsPerUser;
+            return Task.CompletedTask;
+        }
+
+        [Command("q"), Summary("Executes a youtube search and enqueues the first result"), RequireVoiceChannel]
         public async Task Queue([Remainder] string songName = default)
         {
             //check validity of song name
@@ -45,6 +72,13 @@ namespace DeeJay.Discord.Modules
                 await RespondAsync("No song name specified. (!q <songname>)");
             else
             {
+                if (!MusicService.CanQueue(Context.User.Id))
+                {
+                    await RespondAsync(
+                        $"Queue failed, \"!slowmode {MusicService.SlowMode}\" is currently activated. ({MusicService.SlowMode} queued song(s) per user)");
+                    return;
+                }
+
                 await Context.Message.DeleteAsync();
                 var searchMsg = await RespondAsync($"Searching for {songName}...");
                 Song song = null;
@@ -101,42 +135,33 @@ namespace DeeJay.Discord.Modules
             }
         }
 
-        [Command("play"), Summary("Begins playback of the current song")]
+        [Command("play"), Summary("Begins playback of the current song"), RequireVoiceChannel]
         public async Task Play()
         {
             await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
             await MusicService.PlayAsync();
         }
 
-        [Command("pause"), Summary("Pauses playback of the current song")]
+        [Command("pause"), Summary("Pauses playback of the current song"), RequireVoiceChannel]
         public async Task Pause()
         {
-            if (await MusicService.PauseSongAsync(out var song))
+            if (await MusicService.PauseAsync(out var song))
                 await RespondAsync($"Pausing {song.Title}.");
             else
                 Warn("Attempted to pause when not already playing.");
         }
 
-        [Command("skip"), Summary("Skips the current song"), RequirePrivilege(PrivilegeLevel.Elevated)]
-        public async Task Skip()
-        {
-            if (await MusicService.SkipSongAsync(out var songTask))
-                await RespondAsync($"Skipping {(await songTask).Title}");
-            else
-                Warn("Attempted to skip when not already playing.");
-        }
-
-        [Command("come"), Summary("Makes the bot join your voice channel")]
+        [Command("come"), Summary("Makes the bot join your voice channel"), RequireVoiceChannel]
         public async Task Come()
         {
             await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
             Info($"Joining {MusicService.VoiceChannel.Name}");
         }
 
-        [Command("leave"), Summary("Makes the bot leave it's voice channel")]
+        [Command("leave"), Summary("Makes the bot leave it's voice channel"), RequireVoiceChannel]
         public async Task Leave()
         {
-            if (await MusicService.PauseSongAsync(out var song))
+            if (await MusicService.PauseAsync(out var song))
                 Info($"Pausing {song.Title}");
 
             if (MusicService.InVoice)
@@ -182,7 +207,7 @@ namespace DeeJay.Discord.Modules
                 Warn("Attempting to display song queue when no songs are in queue.");
         }
 
-        [Command("remove"), Summary("Removes a song from the queue at a given index")]
+        [Command("remove"), Summary("Removes a song from the queue at a given index"), RequireVoiceChannel]
         public async Task Remove([Remainder] string songIndex = default)
         {
             if (int.TryParse(songIndex, out var index))
@@ -197,16 +222,6 @@ namespace DeeJay.Discord.Modules
                 Warn($"Argument supplied is not an integer. ({songIndex})");
 
             await Task.CompletedTask;
-        }
-
-        [Command("clear"), Summary("Clears all songs from the queue"), RequirePrivilege(PrivilegeLevel.Elevated)]
-        public async Task Clear()
-        {
-            if (await MusicService.PauseSongAsync(out var song))
-                Info($"Pausing {song.Title}");
-
-            await RespondAsync("Clearing the queue.");
-            MusicService.SongQueue.Clear();
         }
 
         [Command("help"), Alias("commands"), Summary("The message you're currently reading")]
@@ -241,8 +256,8 @@ namespace DeeJay.Discord.Modules
         /// </summary>
         private class RequirePrivilege : Attributes.RequirePrivilege
         {
-            internal RequirePrivilege(PrivilegeLevel privilegeLevel)
-                : base(privilegeLevel) { }
+            internal RequirePrivilege(Privilege privilege)
+                : base(privilege) { }
 
             public override async Task<PreconditionResult> CheckPermissionsAsync(
                 ICommandContext context, CommandInfo command, IServiceProvider services)

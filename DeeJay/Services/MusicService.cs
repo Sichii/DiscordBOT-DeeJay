@@ -25,6 +25,7 @@ namespace DeeJay.Services
         internal ulong VoiceChannelId { get; set; }
         internal ulong DesignatedChannelId { get; set; }
         internal MusicServiceState State { get; set; }
+        internal byte SlowMode { get; set; }
         internal SocketTextChannel DesignatedChannel => DesignatedChannelId != 0 ? Guild?.GetTextChannel(DesignatedChannelId) : default;
         internal SocketVoiceChannel VoiceChannel => VoiceChannelId != 0 ? Guild?.GetVoiceChannel(VoiceChannelId) : default;
         internal SocketGuild Guild => GuildId != 0 ? Client.GetGuild(GuildId) : default;
@@ -44,6 +45,12 @@ namespace DeeJay.Services
         }
 
         /// <summary>
+        ///     Determins whether or not a user can queue a song.
+        /// </summary>
+        /// <param name="userId">The id of the user.</param>
+        internal bool CanQueue(ulong userId) => SlowMode == 0 || SlowMode >= SongQueue.Count(song => song.RequestedBy.Id == userId);
+
+        /// <summary>
         ///     Pauses audio playback and joins a voice channel.
         /// </summary>
         /// <param name="channel"></param>
@@ -52,7 +59,7 @@ namespace DeeJay.Services
             if (channel == default || InVoice && VoiceChannelId == channel.Id)
                 return;
 
-            await PauseSongAsync(out _);
+            await PauseAsync(out _);
             VoiceChannelId = channel.Id;
             AudioClient = await channel.ConnectAsync();
         }
@@ -62,7 +69,7 @@ namespace DeeJay.Services
         /// </summary>
         internal async Task LeaveVoiceAsync()
         {
-            await PauseSongAsync(out _);
+            await PauseAsync(out _);
             await (VoiceChannel?.DisconnectAsync() ?? Task.CompletedTask);
             AudioClient?.Dispose();
 
@@ -86,7 +93,7 @@ namespace DeeJay.Services
                         foreach (var song in SongQueue.Take(3))
                             song.TrySetData();
 
-                        await PlayNextSongAsync();
+                        await PlaySongAsync();
                     } catch (Exception)
                     {
                         await AudioClient.SetSpeakingAsync(false);
@@ -114,7 +121,7 @@ namespace DeeJay.Services
         /// <summary>
         ///     Plays a song in the current voice channel.
         /// </summary>
-        internal async Task PlayNextSongAsync()
+        private async Task PlaySongAsync()
         {
             if (SongQueue.TryPeek(out var song))
             {
@@ -147,7 +154,7 @@ namespace DeeJay.Services
         ///     Pauses playback.
         /// </summary>
         /// <param name="song">The song that was paused.</param>
-        internal Task<bool> PauseSongAsync(out Song song)
+        internal Task<bool> PauseAsync(out Song song)
         {
             song = default;
 
@@ -173,14 +180,14 @@ namespace DeeJay.Services
         ///     Pauses the currently playing song and removes it from the queue.
         /// </summary>
         /// <param name="songTask">The song that was skipped</param>
-        internal Task<bool> SkipSongAsync(out ValueTask<Song> songTask)
+        internal Task<bool> SkipAsync(out ValueTask<Song> songTask)
         {
             var source = new TaskCompletionSource<Song>();
             songTask = new ValueTask<Song>(source.Task);
 
             async Task<bool> InnerSkipSongAsync()
             {
-                if (await PauseSongAsync(out _) && SongQueue.TryDequeue(out var outSong))
+                if (await PauseAsync(out _) && SongQueue.TryDequeue(out var outSong))
                 {
                     await PlayAsync();
                     await outSong.DisposeAsync();
@@ -209,7 +216,7 @@ namespace DeeJay.Services
 
             if (index == 1)
             {
-                await SkipSongAsync(out var songTask);
+                await SkipAsync(out var songTask);
                 result = await songTask;
             } else
             {
@@ -252,7 +259,7 @@ namespace DeeJay.Services
                         Log.Warn("Disconnect canceled. Reconnect successful.");
                     else
                         await DisconnectAsync(false);
-                }, token);
+                });
             #pragma warning restore 4014
             else if (Connected)
             {
