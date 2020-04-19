@@ -9,9 +9,7 @@ namespace DeeJay
         internal static async Task Main(string[] args)
         {
             NLogBuilder.ConfigureNLog("NLog.config");
-
             await Client.Login();
-
             await Task.Delay(-1);
         }
     }

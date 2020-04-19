@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
-using DeeJay.DiscordModel;
-using DeeJay.Model.Services;
+using DeeJay.Discord;
+using DeeJay.Services;
 using Discord;
 using Discord.WebSocket;
 using NLog;
@@ -18,8 +19,8 @@ namespace DeeJay.Model
     {
         private static readonly string Token;
         private static readonly Logger Log;
+        private static readonly DiscordSocketClient SocketClient;
         internal static ConcurrentDictionary<ulong, ServiceProvider> Providers { get; }
-        internal static DiscordSocketClient SocketClient { get; }
 
         static Client()
         {
@@ -30,17 +31,33 @@ namespace DeeJay.Model
 
             //set up the discord client to log things and act on messages people send
             SocketClient.Log += msg => LogMessage(msg.Severity, msg.Message);
-            SocketClient.MessageReceived += CommandHandler.TryHandleAsync;
+            SocketClient.MessageReceived += msg => CommandHandler.TryHandleAsync(SocketClient, msg);
+            SocketClient.Disconnected += ex =>
+            {
+                Log.Error($"Disconnecting because \"{ex.Message}\"");
+                foreach (var service in Providers.SelectMany(kvp => kvp.Value.ConnectedServices))
+                    service.DisconnectAsync(true);
+
+                return Task.CompletedTask;
+            };
             SocketClient.Connected += () =>
             {
-                foreach (var kvp in Providers)
-                    kvp.Value.Reconnect();
+                foreach (var service in Providers.SelectMany(kvp => kvp.Value.ConnectedServices))
+                    service.ConnectAsync();
 
                 return Task.CompletedTask;
             };
 
-            SocketClient.Ready += () => SocketClient.SetActivityAsync(new DiscordActivity("hard to get (!help)", ActivityType.Playing));
+            SocketClient.Ready += () =>
+                SocketClient.SetActivityAsync(new Activity("hard to get (!help)", ActivityType.Playing, ActivityProperties.None,
+                    string.Empty));
         }
+
+        /// <summary>
+        ///     Retreives a guild object for a given guild id.
+        /// </summary>
+        /// <param name="guildId">A guild unique identifier.</param>
+        internal static SocketGuild GetGuild(ulong guildId) => SocketClient.GetGuild(guildId);
 
         /// <summary>
         ///     Logs the bot into discord.

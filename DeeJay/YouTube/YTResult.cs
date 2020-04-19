@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace DeeJay.Model.YouTube
+namespace DeeJay.YouTube
 {
     /// <summary>
     ///     The result of a <see cref="YTRequest" /> search execution.

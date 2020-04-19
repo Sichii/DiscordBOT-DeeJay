@@ -1,11 +1,8 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using DeeJay.Model.YouTube;
 using Discord;
 
 namespace DeeJay.Definitions
@@ -18,6 +15,12 @@ namespace DeeJay.Definitions
         internal static bool ContainsI(this string str1, string str2) => str1.IndexOf(str2, StringComparison.OrdinalIgnoreCase) != -1;
 
         internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
+
+        internal static async Task<TResult> ReType<TResult>(this Task task, TResult result)
+        {
+            await task;
+            return result;
+        }
 
         /// <summary>
         ///     Gets the voice channel the user is in, if theyre in one.
@@ -126,41 +129,6 @@ namespace DeeJay.Definitions
                 } else
                     yield return str;
             }
-        }
-
-        /// <summary>
-        ///     Detects the bitrate of the audio, and seeks to the specified time in the song.
-        ///     <inheritdoc cref="Stream.Seek" />
-        /// </summary>
-        /// <param name="song">A song object.</param>
-        internal static async Task AutoSeekAsync(this Song song)
-        {
-            var stream = await song.DataTask;
-            var bitRate = stream.Length / (long) song.Duration.TotalSeconds;
-            var seekPosition = bitRate * (long) song.Progress.Elapsed.TotalSeconds;
-
-            if (seekPosition > stream.Length)
-                stream.Seek(0, SeekOrigin.Begin);
-
-            stream.Seek(seekPosition, SeekOrigin.Begin);
-        }
-
-        /// <summary>
-        ///     Runs a process and asynchronously waits for it to exit.
-        /// </summary>
-        /// <param name="process">A process object.</param>
-        /// <param name="readOutput">Whether or not to read output of the process.</param>
-        internal static Task RunAsync(this Process process, bool readOutput)
-        {
-            var source = new TaskCompletionSource<bool>();
-            if (readOutput)
-                process.StartInfo.RedirectStandardOutput = true;
-            process.EnableRaisingEvents = true;
-            process.Exited += (s, e) => source.TrySetResult(true);
-            process.Start();
-            process.BeginOutputReadLine();
-
-            return source.Task;
         }
 
         /// <summary>

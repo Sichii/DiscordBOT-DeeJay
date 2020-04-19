@@ -1,43 +1,46 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
-using DeeJay.Interface;
-using DeeJay.Model.YouTube;
+using DeeJay.Interfaces;
+using DeeJay.Model;
+using DeeJay.Utility;
+using DeeJay.YouTube;
 using Discord;
 using Discord.Audio;
 using Discord.WebSocket;
 using NLog;
 
-namespace DeeJay.Model.Services
+namespace DeeJay.Services
 {
     /// <summary>
     ///     A service that represents music playback for an individual discord server.
     /// </summary>
     public class MusicService : IConnectedService
     {
-        internal CancellationTokenSource CancellationTokenSource { get; set; }
+        public bool Connected { get; set; }
         internal Task PlayingTask { get; set; }
         internal IAudioClient AudioClient { get; set; }
         internal ulong VoiceChannelId { get; set; }
         internal ulong DesignatedChannelId { get; set; }
-        internal bool Playing { get; private set; }
-
+        internal MusicServiceState State { get; set; }
         internal SocketTextChannel DesignatedChannel => DesignatedChannelId != 0 ? Guild?.GetTextChannel(DesignatedChannelId) : default;
         internal SocketVoiceChannel VoiceChannel => VoiceChannelId != 0 ? Guild?.GetVoiceChannel(VoiceChannelId) : default;
-        internal SocketGuild Guild => GuildId != 0 ? Client.SocketClient.GetGuild(GuildId) : default;
+        internal SocketGuild Guild => GuildId != 0 ? Client.GetGuild(GuildId) : default;
         internal bool InVoice => AudioClient?.ConnectionState == ConnectionState.Connected;
+        internal bool Playing => State == MusicServiceState.Playing;
 
         internal ConcurrentQueue<Song> SongQueue { get; }
+        private Canceller Canceller { get; }
 
         internal MusicService(ulong guildId)
         {
             GuildId = guildId;
-            CancellationTokenSource = new CancellationTokenSource();
+            Canceller = Canceller.New;
             SongQueue = new ConcurrentQueue<Song>();
             Log = LogManager.GetLogger($"MscServ-{guildId}");
+            Connected = true;
         }
 
         /// <summary>
@@ -78,20 +81,20 @@ namespace DeeJay.Model.Services
                 if (!SongQueue.IsEmpty)
                     try
                     {
+                        State = MusicServiceState.Playing;
                         //preload the first 3 songs
                         foreach (var song in SongQueue.Take(3))
                             song.TrySetData();
 
                         await PlayNextSongAsync();
-                    } catch (OperationCanceledException)
+                    } catch (Exception)
                     {
-                        Playing = false;
                         await AudioClient.SetSpeakingAsync(false);
                         return;
                     }
                 else //otherwise exit this method
                 {
-                    Playing = false;
+                    State = MusicServiceState.None;
                     await AudioClient.SetSpeakingAsync(false);
                     return;
                 }
@@ -115,38 +118,28 @@ namespace DeeJay.Model.Services
         {
             if (SongQueue.TryPeek(out var song))
             {
-                Playing = true;
-                var token = CancellationTokenSource.Token;
                 var dataStream = await song.DataTask;
 
-                await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int) BitRate.b128k);
+                await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int) Enums.b128k);
 
-                //seek if we paused
+                //seek if we're resuming from a pause
                 if (song.Progress.Elapsed > TimeSpan.Zero)
-                    await song.AutoSeekAsync();
+                    await song.SeekAsync(song.Progress.Elapsed);
 
-                try
-                {
-                    song.Progress.Start();
+                await (DesignatedChannel?.SendMessageAsync($"Now playing {song.ToString(false)}") ?? Task.CompletedTask);
 
-                    await (DesignatedChannel?.SendMessageAsync($"Now playing {song.ToString(false)}") ?? Task.CompletedTask);
+                //song playback
+                song.Progress.Start();
+                await dataStream.CopyToAsync(audioStream, Canceller);
+                await audioStream.FlushAsync(Canceller);
+                song.Progress.Stop();
 
-                    await dataStream.CopyToAsync(audioStream, CancellationTokenSource.Token);
-                } finally
-                {
-                    if (!token.IsCancellationRequested)
-                    {
-                        await audioStream.FlushAsync(CancellationTokenSource.Token);
-                        song.Progress.Stop();
+                //if song ended too early, something probably went wrong
+                if (song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(10)))
+                    Log.Error($"Playback failure. {song.ToString(true)}");
 
-                        if (song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(10)))
-                            Log.Error($"Playback failure. {song.ToString(true)}");
-                        else
-                            await song.DisposeAsync();
-
-                        SongQueue.TryDequeue(out _);
-                    }
-                }
+                SongQueue.TryDequeue(out _);
+                await song.DisposeAsync();
             }
         }
 
@@ -161,14 +154,17 @@ namespace DeeJay.Model.Services
             //if the audioclient isnt null
             if (Playing && SongQueue.TryPeek(out song))
             {
+                State = MusicServiceState.Paused;
                 song.Progress.Stop();
-                CancellationTokenSource.Cancel();
-                CancellationTokenSource.Dispose();
-                CancellationTokenSource = new CancellationTokenSource();
 
-                Log.Info("Playback paused.");
-                return Task.FromResult(true);
+                Log.Info("Pausing playback...");
+                return Canceller.CancelAsync()
+                    .ReType(true);
             }
+
+            //incase something nefarious is going on
+            if (Playing)
+                State = MusicServiceState.None;
 
             return Task.FromResult(false);
         }
@@ -224,18 +220,45 @@ namespace DeeJay.Model.Services
             return result;
         }
 
-        public async Task Reconnect()
+        public async Task ConnectAsync()
         {
-            Log.Error($"Reconnecting and resuming playback for {GuildId}-{VoiceChannel.Name}");
+            Log.Warn("Connecting...");
 
-            if (Playing)
+            if (Connected)
             {
-                var channel = Client.SocketClient.GetGuild(GuildId)
-                    .GetVoiceChannel(VoiceChannelId);
-                await JoinVoiceAsync(channel);
+                await LeaveVoiceAsync();
+                await Canceller.CancelAsync();
+                await JoinVoiceAsync(VoiceChannel);
                 await PlayAsync();
             } else
+            {
+                Connected = true;
                 await LeaveVoiceAsync();
+            }
+        }
+
+        public async Task DisconnectAsync(bool wait)
+        {
+            Log.Warn($"Disconnecting... (WaitForReconnect={wait})");
+            var token = Canceller.Token;
+
+            #pragma warning disable 4014
+            if (wait && State == MusicServiceState.Playing)
+                Task.Run(async () =>
+                {
+                    await Task.Delay(1500);
+
+                    if (token.IsCancellationRequested)
+                        Log.Warn("Disconnect canceled. Reconnect successful.");
+                    else
+                        await DisconnectAsync(false);
+                }, token);
+            #pragma warning restore 4014
+            else if (Connected)
+            {
+                Connected = false;
+                await LeaveVoiceAsync();
+            }
         }
 
         public ulong GuildId { get; }

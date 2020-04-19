@@ -1,6 +1,6 @@
 ﻿using NLog;
 
-namespace DeeJay.Interface
+namespace DeeJay.Interfaces
 {
     public interface IService
     {

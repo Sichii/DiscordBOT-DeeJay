@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
-using DeeJay.DiscordModel.Modules;
-using DeeJay.Model.Services;
+using DeeJay.Discord.Modules;
+using DeeJay.Services;
 using Discord;
 using Discord.Commands;
 using Discord.WebSocket;
@@ -21,32 +21,28 @@ namespace DeeJay.Model
             DefaultRunMode = RunMode.Async
         });
 
-        private static readonly Logger Log = LogManager.GetLogger("CommandHandler");
+        private static readonly Logger Log = LogManager.GetLogger("CmdHnd");
+
+        static CommandHandler() => CommandService.AddModuleAsync<MusicModule>(ServiceProvider.DefaultInstance);
 
         /// <summary>
         ///     Parse input. If it's a command, executes relevant method.
         /// </summary>
+        /// <param name="client">The bot's discord api client.</param>
         /// <param name="message">The message to parse.</param>
-        public static async Task TryHandleAsync(SocketMessage message)
+        public static async Task TryHandleAsync(DiscordSocketClient client, SocketMessage message)
         {
-            var client = Client.SocketClient;
             var msg = (SocketUserMessage) message;
             var context = new SocketCommandContext(client, msg);
 
             //if we dont have a serviceprovider for this guild
             if (!Client.Providers.TryGetValue(context.Guild.Id, out var serviceProvider))
             {
-                Log.Debug($"Creating new service and module for guild {context.Guild.Id}.");
+                Log.Debug($"Creating new service provider for guild {context.Guild.Id}.");
                 //create the serviceprovider and store it under the guild id
                 serviceProvider = new ServiceProvider(context.Guild.Id);
-
-                if (Client.Providers.IsEmpty)
-                    await CommandService.AddModuleAsync<MusicModule>(serviceProvider);
-
                 Client.Providers[context.Guild.Id] = serviceProvider;
             }
-
-            var guildLog = LogManager.GetLogger($"CmdMod-{context.Guild.Id.ToString()}");
 
             //pos will be the place we're at in the message after we check for the command prefix
             var pos = 0;
@@ -56,17 +52,16 @@ namespace DeeJay.Model
                 (msg.HasCharPrefix('!', ref pos) || msg.HasMentionPrefix(client.CurrentUser, ref pos)))
                 try
                 {
-                    guildLog.Info($"Executing command {msg.Content}");
                     //if it is, try to execute the command using serviceprovider
                     var result = await CommandService.ExecuteAsync(context, pos, serviceProvider, MultiMatchHandling.Best);
 
                     //print errors
                     if (!result.IsSuccess)
-                        guildLog.Error($"ERROR: {result.ErrorReason}");
+                        Log.Error($"Guild: {context.Guild.Id} ERROR: {result.ErrorReason}");
                 } catch (Exception ex)
                 {
                     //exceptions shouldnt reach this far, but just in case
-                    guildLog.Error(
+                    Log.Error(
                         $"{Environment.NewLine}{Environment.NewLine}UNKNOWN EXCEPTION - SEVERE{Environment.NewLine}{ex.Message}{Environment.NewLine}{Environment.NewLine}");
                 }
         }

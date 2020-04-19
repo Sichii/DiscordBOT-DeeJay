@@ -1,15 +1,20 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
-using DeeJay.Interface;
+using DeeJay.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace DeeJay.Model.Services
+namespace DeeJay.Services
 {
     internal class ServiceProvider : IServiceProvider
     {
+        internal static ServiceProvider DefaultInstance = new ServiceProvider(0);
         internal ulong GuildId { get; }
         internal ServiceCollection Services { get; }
+
+        internal IEnumerable<IConnectedService> ConnectedServices =>
+            Services.Select(service => service.ImplementationInstance)
+                .OfType<IConnectedService>();
 
         internal ServiceProvider(ulong guildId)
         {
@@ -20,18 +25,10 @@ namespace DeeJay.Model.Services
             Services.AddSingleton(new MusicService(guildId));
         }
 
-        internal Task Reconnect() =>
-            Task.WhenAll(Services.Select(service => service.ImplementationInstance)
-                .OfType<IConnectedService>()
-                .Select(service => service.Reconnect()));
-
         public object GetService(Type serviceType) =>
             Services.Select(service => service.ImplementationInstance)
                 .FirstOrDefault(instance => instance.GetType() == serviceType);
 
-        internal TService GetService<TService>() =>
-            Services.Select(service => service.ImplementationInstance)
-                .OfType<TService>()
-                .FirstOrDefault();
+        internal TService GetService<TService>() => (TService) GetService(typeof(TService));
     }
 }
