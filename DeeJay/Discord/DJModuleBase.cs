@@ -55,10 +55,7 @@ namespace DeeJay.Discord
             return traceMsg;
         }
 
-        protected async Task<IUserMessage> RespondAsync(string response, [CallerMemberName] string command = "") =>
+        protected async Task<IUserMessage> LogReplyAsync(string response, [CallerMemberName] string command = "") =>
             await ReplyAsync(Debug(response, command));
-
-        protected Task<IUserMessage> DirectRespond(string response, [CallerMemberName] string command = "") =>
-            Context.User.SendMessageAsync(Debug(response, command));
     }
 }

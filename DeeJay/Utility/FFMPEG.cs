@@ -4,6 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
+using NAudio.Wave;
 using NLog;
 
 namespace DeeJay.Utility
@@ -13,16 +14,17 @@ namespace DeeJay.Utility
     /// </summary>
     internal static class FFMPEG
     {
-        private static readonly Logger Log = LogManager.GetCurrentClassLogger();
+        private static readonly Logger Log = LogManager.GetLogger(nameof(FFMPEG));
 
         /// <summary>
         ///     Runs ffmpeg.exe with pre-defined arguments
         /// </summary>
         /// <param name="args">Input argument.</param>
         /// <param name="token">Cancellation token.</param>
-        internal static async Task<MemoryStream> RunAsync(string args, CancellationToken token)
+        internal static async Task<WaveStream> RunAsync(string args, CancellationToken token)
         {
             var dataStream = new MemoryStream();
+            WaveStream waveStream = default;
 
             try
             {
@@ -46,14 +48,19 @@ namespace DeeJay.Utility
                     await ffmpeg.StandardOutput.BaseStream.CopyToAsync(dataStream, token);
 
                 await ffmpeg.StandardOutput.BaseStream.CopyToAsync(dataStream, token);
+                waveStream = new RawSourceWaveStream(dataStream, new WaveFormat(48000, 16, 2));
+
                 Log.Debug("Success.");
-                dataStream.Position = 0;
-                return dataStream;
+                waveStream.CurrentTime = TimeSpan.Zero;
+                return waveStream;
             } catch (OperationCanceledException)
             {
                 Log.Error("Failure.");
                 await dataStream.DisposeAsync();
-                return new MemoryStream();
+                if (waveStream != null)
+                    await waveStream.DisposeAsync();
+
+                return waveStream;
             }
         }
     }

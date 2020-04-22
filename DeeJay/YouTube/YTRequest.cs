@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -34,10 +35,17 @@ namespace DeeJay.YouTube
         {
             //0 = title, 1 = direct link, 2 = duration string
             var isURI = Query.IsValidURI();
+            var isYouTube = isURI && (Query.Contains("youtube") || Query.Contains("youtu.be"));
 
             //"ytsearch:{Query} -\"extended\"" => ytsearch:{Query} -"extended"
+            //if the query is not a uri and we're trying to cull extended
             if (cullExtended && !isURI)
                 Query = $"{Query} -\\\"extended\\\"";
+
+            //if the song is not a uri, or it's a youtube link (and the cookies file exists)
+            //then use the cookies file
+            if ((!isURI || isYouTube) && File.Exists(CONSTANTS.COOKIES_PATH) && (await File.ReadAllLinesAsync(CONSTANTS.COOKIES_PATH)).Length > 0)
+                Query += $" --cookies {CONSTANTS.COOKIES_PATH}";
 
             var queryStr = !isURI ? $"\"ytsearch:{Query}\"" : Query;
             var output = (await YTDL.RunAsync(queryStr, token)).ToArray();

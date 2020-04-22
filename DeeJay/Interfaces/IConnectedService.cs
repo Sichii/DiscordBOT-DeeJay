@@ -12,11 +12,11 @@ namespace DeeJay.Interfaces
         /// <summary>
         ///     Reconnects the service to whatever it was connected to.
         /// </summary>
-        Task ConnectAsync();
+        ValueTask ConnectAsync();
 
         /// <summary>
         ///     Disconnects the service from whatever it was connected to.
         /// </summary>
-        Task DisconnectAsync(bool wait);
+        ValueTask DisconnectAsync(bool wait);
     }
 }

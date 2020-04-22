@@ -9,7 +9,9 @@ using DeeJay.Model;
 using DeeJay.Services;
 using DeeJay.Utility;
 using DeeJay.YouTube;
+using Discord;
 using Discord.Commands;
+using Discord.WebSocket;
 using NLog;
 
 namespace DeeJay.Discord.Modules
@@ -25,7 +27,7 @@ namespace DeeJay.Discord.Modules
 
         public MusicModule(MusicService musicService)
         {
-            Log = LogManager.GetLogger($"MusMod-{musicService.GuildId}");
+            Log = LogManager.GetLogger($"MscMdl-{musicService.GuildId}");
             MusicService = musicService;
         }
 
@@ -33,35 +35,54 @@ namespace DeeJay.Discord.Modules
         public Task Designate()
         {
             MusicService.DesignatedChannelId = Context.Channel.Id;
-            return RespondAsync(
+            return LogReplyAsync(
                 $"{Context.Channel.Name} is now the designated music channel for {Context.Guild.Name}. Ignoring commands in other channels.");
         }
 
         [Command("skip"), Summary("Skips the current song"), RequirePrivilege(Privilege.Elevated), RequireVoiceChannel]
         public async Task Skip()
         {
-            if (await MusicService.SkipAsync(out var songTask))
-                await RespondAsync($"Skipping {(await songTask).Title}");
-            else
+            if (!MusicService.Playing)
+            {
                 Warn("Attempted to skip when not already playing.");
+                return;
+            }
+
+            var song = MusicService.NowPlaying;
+
+            if (song == null)
+            {
+                Error("Music service is playing, but there are no songs in the queue.");
+                MusicService.State = MusicServiceState.None;
+                return;
+            }
+
+            await ReplyAsync($"Skipping {song.Title}..."); //RespondAsync($"Skipping {song.Title}...");
+            await MusicService.SkipAsync(out _);
         }
 
         [Command("clear"), Summary("Clears all songs from the queue"), RequirePrivilege(Privilege.Elevated), RequireVoiceChannel]
         public async Task Clear()
         {
-            if (await MusicService.PauseAsync(out var song))
-                Info($"Pausing {song.Title}");
+            var song = MusicService.NowPlaying;
 
-            await RespondAsync("Clearing the queue.");
-            MusicService.SongQueue.Clear();
+            if (song != null)
+                await MusicService.PauseAsync(out _);
+
+            await ReplyAsync("Clearing the queue...");
+            await MusicService.ClearQueueAsync();
         }
 
         [Command("slowmode"), Summary("Only allows a specified number of songs in the queue per person."),
          RequirePrivilege(Privilege.Elevated)]
-        public Task SlowMode(byte maxSongsPerUser = 0)
+        public async Task SlowMode(byte maxSongsPerUser = 0)
         {
+            if (maxSongsPerUser == 0)
+                await LogReplyAsync("SlowMode is now off.");
+            else
+                await LogReplyAsync($"SlowMode is now on. Max {maxSongsPerUser} songs per user.");
+
             MusicService.SlowMode = maxSongsPerUser;
-            return Task.CompletedTask;
         }
 
         [Command("q"), Summary("Executes a youtube search and enqueues the first result"), RequireVoiceChannel]
@@ -69,28 +90,32 @@ namespace DeeJay.Discord.Modules
         {
             //check validity of song name
             if (string.IsNullOrWhiteSpace(songName))
-                await RespondAsync("No song name specified. (!q <songname>)");
+                await LogReplyAsync("No song name specified. (!q <songname>)");
             else
             {
                 if (!MusicService.CanQueue(Context.User.Id))
                 {
-                    await RespondAsync(
+                    await LogReplyAsync(
                         $"Queue failed, \"!slowmode {MusicService.SlowMode}\" is currently activated. ({MusicService.SlowMode} queued song(s) per user)");
                     return;
                 }
 
-                await Context.Message.DeleteAsync();
-                var searchMsg = await RespondAsync($"Searching for {songName}...");
-                Song song = null;
-                var canceller = Canceller.New;
+                Song song;
+                IUserMessage searchMsg;
+                var canceller = new Canceller();
 
                 try
                 {
-                    //create the song object from the request
-                    song = await Song.FromRequest(Context.User, new YTRequest(songName), canceller);
+                    var songTask = Song.FromRequest(Context.User, new YTRequest(songName), canceller);
+                    var searchTask = LogReplyAsync($"Searching for {songName}...");
+                    await Task.WhenAll(Context.Message.DeleteAsync(), songTask, searchTask);
+
+                    song = await songTask;
+                    searchMsg = await searchTask;
                 } catch (Exception e)
                 {
                     Error(e.ToString());
+                    return;
                 }
 
                 if (song == null)
@@ -108,9 +133,9 @@ namespace DeeJay.Discord.Modules
                 //if this song title is already in queue, dont queue it, cancel the data task
                 if (MusicService.SongQueue.Any(innerSong => innerSong.Title.EqualsI(song.Title)))
                 {
-                    await searchMsg.ModifyAsync(msg => msg.Content = Warn($"{song.Title} was already queued."));
-                    await canceller.CancelAsync();
-                    await song.DisposeAsync();
+                    await Task.WhenAll(searchMsg.ModifyAsync(msg => msg.Content = Warn($"{song.Title} was already queued.")),
+                        canceller.CancelAsync(), song.DisposeAsync()
+                            .AsTask());
                     return;
                 }
 
@@ -119,67 +144,75 @@ namespace DeeJay.Discord.Modules
 
                 MusicService.SongQueue.Enqueue(song);
 
-                //if we're not inf a voice channel, join the caller's channel
-                if (!MusicService.InVoice)
-                    await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
+                //if we're not in a voice channel, join the caller's channel
+                await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
 
                 //if we're not currently playing audio, play the next song
-                if (MusicService.State != MusicServiceState.Playing)
-                {
-                    await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
-                    await MusicService.PlayAsync();
-                }
+                await MusicService.PlayAsync();
 
-                await searchMsg.ModifyAsync(msg => msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!"));
-                await searchMsg.ModifyAsync(msg => msg.Embed = null);
+                await searchMsg.ModifyAsync(msg =>
+                {
+                    msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!");
+                    msg.Embed = null;
+                });
             }
         }
 
         [Command("play"), Summary("Begins playback of the current song"), RequireVoiceChannel]
         public async Task Play()
         {
+            //if we're not in a voice channel, join the caller's channel
             await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
+
+            //if we're not currently playing audio, play the next song
             await MusicService.PlayAsync();
         }
 
         [Command("pause"), Summary("Pauses playback of the current song"), RequireVoiceChannel]
         public async Task Pause()
         {
-            if (await MusicService.PauseAsync(out var song))
-                await RespondAsync($"Pausing {song.Title}.");
-            else
+            if (MusicService.Playing)
+            {
+                var song = MusicService.NowPlaying;
+
+                if (song != null)
+                {
+                    await ReplyAsync($"Pausing {song.Title}.");
+                    await MusicService.PauseAsync(out _);
+                } else
+                    MusicService.State = MusicServiceState.None;
+            } else
                 Warn("Attempted to pause when not already playing.");
         }
 
         [Command("come"), Summary("Makes the bot join your voice channel"), RequireVoiceChannel]
-        public async Task Come()
-        {
-            await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
-            Info($"Joining {MusicService.VoiceChannel.Name}");
-        }
+        public Task Come() =>
+            MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel())
+                .AsTask();
 
         [Command("leave"), Summary("Makes the bot leave it's voice channel"), RequireVoiceChannel]
         public async Task Leave()
         {
-            if (await MusicService.PauseAsync(out var song))
-                Info($"Pausing {song.Title}");
+            await MusicService.PauseAsync(out _);
 
             if (MusicService.InVoice)
-            {
-                Info($"Leaving {MusicService.VoiceChannel.Name}");
                 await MusicService.LeaveVoiceAsync();
-            } else
+            else
                 Warn("Attempting to leave voice channel when not in one.");
         }
 
         [Command("show"), Summary("Displays info about the current song")]
         public Task ShowSong()
         {
-            if (MusicService.SongQueue.TryPeek(out var song))
-                return RespondAsync(song.ToString(true));
+            var song = MusicService.NowPlaying;
 
-            Warn("Attempting to show song when no songs in queue.");
-            return Task.CompletedTask;
+            if (song == null)
+            {
+                Warn("Attempting to show song when no song is playing.");
+                return Task.CompletedTask;
+            }
+
+            return LogReplyAsync(song.ToString(true));
         }
 
         [Command("shownext"), Summary("Displays info about the next song")]
@@ -189,7 +222,7 @@ namespace DeeJay.Discord.Modules
             {
                 var song = MusicService.SongQueue.Skip(1)
                     .First();
-                await RespondAsync(song.ToString());
+                await LogReplyAsync(song.ToString());
             } else
                 Warn("Attempting to show next song info when there is no next song.");
         }
@@ -202,7 +235,7 @@ namespace DeeJay.Discord.Modules
                 var i = 1;
                 var queueStr =
                     $"Displaying song queue.{Environment.NewLine}{string.Join(Environment.NewLine, MusicService.SongQueue.Select(song => $"{i++}. {song}"))}";
-                await RespondAsync(queueStr);
+                await LogReplyAsync(queueStr);
             } else
                 Warn("Attempting to display song queue when no songs are in queue.");
         }
@@ -215,9 +248,9 @@ namespace DeeJay.Discord.Modules
                 var song = await MusicService.RemoveSongAsync(index);
 
                 if (song != null)
-                    await RespondAsync($"Removed {song} from the queue.");
+                    await ReplyAsync($"Removed {song} from the queue.");
                 else
-                    await RespondAsync($"No song found at index {songIndex}");
+                    await ReplyAsync($"No song found at index {songIndex}");
             } else
                 Warn($"Argument supplied is not an integer. ({songIndex})");
 
@@ -246,7 +279,7 @@ namespace DeeJay.Discord.Modules
             for (var i = 0; i < names.Count; i++)
                 builder.AppendLine($"{names[i]}\t\t{parameters[i]}\t\t{summaries[i]}");
 
-            return RespondAsync(builder.ToString());
+            return LogReplyAsync(builder.ToString());
         }
 
         #region Module Attributes
@@ -286,10 +319,12 @@ namespace DeeJay.Discord.Modules
                 {
                     var sProvider = (ServiceProvider) services;
                     var mServ = sProvider.GetService<MusicService>();
+                    var guild = (SocketGuild) context.Guild;
+                    var designatedChannel = guild.GetTextChannel(mServ.DesignatedChannelId);
 
                     return mServ.DesignatedChannelId == 0 || context.Channel.Id == mServ.DesignatedChannelId || command.Name == "Designate"
                         ? Success
-                        : GenError($"Command({command.Name}) was not executed in the designated channel({mServ.DesignatedChannel?.Name})");
+                        : GenError($"Command({command.Name}) was not executed in the designated channel({designatedChannel?.Name})");
                 }
 
                 return GenError("This precondition should only be used on the music module.");

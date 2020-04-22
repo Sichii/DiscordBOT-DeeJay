@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DeeJay.Definitions;
 using DeeJay.Utility;
 using Discord.WebSocket;
+using NAudio.Wave;
 
 namespace DeeJay.YouTube
 {
@@ -15,7 +16,7 @@ namespace DeeJay.YouTube
     internal sealed class Song : IAsyncDisposable
     {
         private SemaphoreSlim Sync = new SemaphoreSlim(1, 1);
-        internal Task<MemoryStream> DataTask { get; private set; }
+        internal Task<WaveStream> DataTask { get; private set; }
         internal Canceller Canceller { get; private set; }
         internal Stopwatch Progress { get; }
         internal SocketUser RequestedBy { get; }
@@ -114,13 +115,7 @@ namespace DeeJay.YouTube
         internal async Task SeekAsync(TimeSpan seekTime)
         {
             var stream = await DataTask;
-            var bitRate = stream.Length / (long) Duration.TotalSeconds;
-            var seekPosition = bitRate * (long) seekTime.TotalSeconds;
-
-            if (seekPosition > stream.Length)
-                stream.Seek(0, SeekOrigin.Begin);
-
-            stream.Seek(seekPosition, SeekOrigin.Begin);
+            stream.CurrentTime = seekTime > stream.TotalTime ? TimeSpan.Zero : seekTime;
         }
 
         /// <summary>

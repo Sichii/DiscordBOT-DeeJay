@@ -13,11 +13,9 @@ namespace DeeJay.Utility
         private CancellationTokenSource Source { get; set; }
         internal CancellationToken Token => Source.Token;
 
-        internal static Canceller New => new Canceller();
-
         public static implicit operator CancellationToken(Canceller canceller) => canceller.Token;
 
-        private Canceller()
+        public Canceller()
         {
             Source = new CancellationTokenSource();
             Sync = new SemaphoreSlim(1, 1);

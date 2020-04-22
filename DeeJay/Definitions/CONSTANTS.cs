@@ -12,6 +12,7 @@ namespace DeeJay.Definitions
         internal const string TOKEN_PATH = @"Data\DiscordAuthToken.txt";
         internal const string YOUTUBEDL_PATH = @"ExternalServices\youtube-dl.exe";
         internal const string FFMPEG_PATH = @"ExternalServices\ffmpeg.exe";
+        internal const string COOKIES_PATH = @"ExternalServices\cookies.txt";
         internal static readonly TimeSpan MAX_DURATION = TimeSpan.FromMinutes(15);
         internal static readonly Graphics GRAPHICS;
         internal static readonly Font WHITNEY_FONT;

@@ -16,10 +16,30 @@ namespace DeeJay.Definitions
 
         internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
 
-        internal static async Task<TResult> ReType<TResult>(this Task task, TResult result)
+        /// <summary>
+        ///     Repurposes a task to return a different type.
+        /// </summary>
+        /// <typeparam name="TResult">Type of the return object.</typeparam>
+        /// <param name="task">A task object.</param>
+        /// <param name="result">The result of the repurposed task.</param>
+        /// <returns></returns>
+        internal static async ValueTask<TResult> ReType<TResult>(this Task task, TResult result)
         {
             await task;
             return result;
+        }
+
+        /// <summary>
+        ///     Uses a generic factory function for get-or-add operations.
+        /// </summary>
+        /// <typeparam name="T">Type of the object to return.</typeparam>
+        /// <param name="dic">A concurrent dictionary.</param>
+        /// <param name="key">The key of the object to check for before generating a new one.</param>
+        /// <returns></returns>
+        internal static T GetOrAdd<T>(this ConcurrentDictionary<string, T> dic, string key) where T : new()
+        {
+            static T Func(string str) => new T();
+            return dic.GetOrAdd(key, Func);
         }
 
         /// <summary>

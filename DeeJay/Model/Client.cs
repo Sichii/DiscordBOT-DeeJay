@@ -17,6 +17,8 @@ namespace DeeJay.Model
     /// </summary>
     internal static class Client
     {
+        internal static ulong Id => SocketClient.CurrentUser.Id;
+        internal static bool Connected => SocketClient.ConnectionState == ConnectionState.Connected;
         private static readonly string Token;
         private static readonly Logger Log;
         private static readonly DiscordSocketClient SocketClient;
@@ -54,10 +56,45 @@ namespace DeeJay.Model
         }
 
         /// <summary>
-        ///     Retreives a guild object for a given guild id.
+        ///     Attempts to retreive a guild object for a given guild id. Retries if it's unavailable.
         /// </summary>
         /// <param name="guildId">A guild unique identifier.</param>
-        internal static SocketGuild GetGuild(ulong guildId) => SocketClient.GetGuild(guildId);
+        internal static async ValueTask<SocketGuild> GetGuildAsync(ulong guildId)
+        {
+            var now = DateTime.UtcNow;
+            var result = SocketClient.GetGuild(guildId);
+
+            while (DateTime.UtcNow.Subtract(now)
+                       .TotalSeconds < 1.5 && result == null)
+            {
+                await Task.Delay(250);
+                result = SocketClient.GetGuild(guildId);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        ///     Attempts to retreive a text channel for a given guild.
+        /// </summary>
+        /// <param name="guildId">A guild unique identifier.</param>
+        /// <param name="textChannelId">A text channel unique identifier.</param>
+        internal static async ValueTask<SocketTextChannel> GetTextChannelAsync(ulong guildId, ulong textChannelId)
+        {
+            var guild = await GetGuildAsync(guildId);
+            return guild?.GetTextChannel(textChannelId);
+        }
+
+        /// <summary>
+        ///     Attempts to retreive a voice channel for a given guild.
+        /// </summary>
+        /// <param name="guildId">A guild unique identifier.</param>
+        /// <param name="voiceChannelId">A voice channel unique identifier.</param>
+        internal static async ValueTask<SocketVoiceChannel> GetVoiceChannelAsync(ulong guildId, ulong voiceChannelId)
+        {
+            var guild = await GetGuildAsync(guildId);
+            return guild?.GetVoiceChannel(voiceChannelId);
+        }
 
         /// <summary>
         ///     Logs the bot into discord.

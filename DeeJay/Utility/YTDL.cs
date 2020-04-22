@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
@@ -13,7 +14,7 @@ namespace DeeJay.Utility
     /// </summary>
     internal static class YTDL
     {
-        private static readonly Logger Log = LogManager.GetCurrentClassLogger();
+        private static readonly Logger Log = LogManager.GetLogger(nameof(YTDL));
 
         /// <summary>
         ///     Runs youtube-dl.exe with predefined arguments.
