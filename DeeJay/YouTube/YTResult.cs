@@ -29,8 +29,9 @@ namespace DeeJay.YouTube
         /// <param name="title">The title of the song result.</param>
         /// <param name="directURI">A direct link to the audio of the song.</param>
         /// <param name="duration">The duration of the song.</param>
-        internal YTResult(string query, string title, string directURI, TimeSpan duration)
-            : base(query)
+        /// <param name="isLive">Whether or not the request is for a live stream.</param>
+        internal YTResult(string query, string title, string directURI, TimeSpan duration, bool isLive = false)
+            : base(query, isLive)
         {
             Title = title;
             DirectURI = directURI;

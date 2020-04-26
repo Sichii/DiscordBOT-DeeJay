@@ -17,11 +17,11 @@ namespace DeeJay.Model
     /// </summary>
     internal static class Client
     {
-        internal static ulong Id => SocketClient.CurrentUser.Id;
-        internal static bool Connected => SocketClient.ConnectionState == ConnectionState.Connected;
         private static readonly string Token;
         private static readonly Logger Log;
         private static readonly DiscordSocketClient SocketClient;
+        internal static ulong Id => SocketClient.CurrentUser.Id;
+        internal static bool Connected => SocketClient.ConnectionState == ConnectionState.Connected;
         internal static ConcurrentDictionary<ulong, ServiceProvider> Providers { get; }
 
         static Client()

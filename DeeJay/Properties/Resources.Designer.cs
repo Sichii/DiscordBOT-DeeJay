@@ -63,9 +63,9 @@ namespace DeeJay.Properties {
         /// <summary>
         ///   Looks up a localized resource of type System.Byte[].
         /// </summary>
-        internal static byte[] whitney_light {
+        internal static byte[] whitney_book {
             get {
-                object obj = ResourceManager.GetObject("whitney_light", resourceCulture);
+                object obj = ResourceManager.GetObject("whitney_book", resourceCulture);
                 return ((byte[])(obj));
             }
         }

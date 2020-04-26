@@ -7,7 +7,7 @@ namespace DeeJay.Utility
     /// <summary>
     ///     A utility object for handling task cancellations.
     /// </summary>
-    internal class Canceller : IDisposable
+    public class Canceller : IDisposable
     {
         private readonly SemaphoreSlim Sync;
         private CancellationTokenSource Source { get; set; }

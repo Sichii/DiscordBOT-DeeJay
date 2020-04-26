@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
@@ -20,8 +19,9 @@ namespace DeeJay.Utility
         ///     Runs youtube-dl.exe with predefined arguments.
         /// </summary>
         /// <param name="args">A song name, video title, and any other additional arguments to pass.</param>
+        /// <param name="audioOnly">Whether or not to retreive an audio-only direct link.</param>
         /// <param name="token">A cancellation token.</param>
-        internal static async Task<IEnumerable<string>> RunAsync(string args, CancellationToken token)
+        internal static async Task<IEnumerable<string>> RunAsync(string args, bool audioOnly, CancellationToken token)
         {
             var output = new List<string>();
 
@@ -37,7 +37,7 @@ namespace DeeJay.Utility
                         FileName = CONSTANTS.YOUTUBEDL_PATH,
                         //best audio stream, probe for direct link, get video duration
                         Arguments =
-                            $"-f bestaudio -sge -R 2 --rm-cache-dir --no-cache-dir --min-sleep-interval 2 --max-sleep-interval 4 --get-duration {args}",
+                            $"-f best{(audioOnly ? "audio" : string.Empty)} -sge -R 2 --rm-cache-dir --no-cache-dir --min-sleep-interval 2 --max-sleep-interval 4 --get-duration {args}",
                         CreateNoWindow = true,
                         UseShellExecute = false,
                         RedirectStandardOutput = true
@@ -51,10 +51,10 @@ namespace DeeJay.Utility
                 youtubedl.BeginOutputReadLine();
 
                 await source.Task;
-                Log.Debug($"Success. Args: \"{args}\" Indexes: {output.Count}");
+                Log.Debug($"Finished. Args: \"{args}\" Indexes: {output.Count}");
             } catch (OperationCanceledException)
             {
-                Log.Error($"Failure. Args: \"{args}\" Indexes: {output.Count}");
+                Log.Error($"Canceled. Args: \"{args}\" Indexes: {output.Count}");
             }
 
             return output;

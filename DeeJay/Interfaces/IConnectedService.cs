@@ -1,4 +1,5 @@
 ﻿using System.Threading.Tasks;
+using DeeJay.Utility;
 
 namespace DeeJay.Interfaces
 {
@@ -8,6 +9,7 @@ namespace DeeJay.Interfaces
     public interface IConnectedService : IService
     {
         bool Connected { get; set; }
+        Canceller DisconnectCanceller { get; }
 
         /// <summary>
         ///     Reconnects the service to whatever it was connected to.

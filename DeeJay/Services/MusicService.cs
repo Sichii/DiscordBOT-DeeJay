@@ -18,7 +18,7 @@ namespace DeeJay.Services
     /// </summary>
     public class MusicService : IConnectedService
     {
-        private readonly ConcurrentDictionary<string, Canceller> Cancellers;
+        internal Song StreamTarget;
         public bool Connected { get; set; }
         internal ValueTask PlayingTask { get; set; }
         internal IAudioClient AudioClient { get; set; }
@@ -26,18 +26,21 @@ namespace DeeJay.Services
         internal ulong DesignatedChannelId { get; set; }
         internal MusicServiceState State { get; set; }
         internal byte SlowMode { get; set; }
+        public Canceller SongCanceller { get; }
         internal bool InVoice => AudioClient?.ConnectionState == ConnectionState.Connected;
         internal bool Playing => State == MusicServiceState.Playing;
+        internal bool Streaming => State == MusicServiceState.Streaming;
         internal Song NowPlaying => Playing ? SongQueue.FirstOrDefault() : null;
 
         internal ConcurrentQueue<Song> SongQueue { get; }
 
         internal MusicService(ulong guildId)
         {
+            DisconnectCanceller = new Canceller();
+            SongCanceller = new Canceller();
             GuildId = guildId;
             SongQueue = new ConcurrentQueue<Song>();
             Log = LogManager.GetLogger($"MscSvc-{guildId}");
-            Cancellers = new ConcurrentDictionary<string, Canceller>(StringComparer.OrdinalIgnoreCase);
 
             Connected = true;
         }
@@ -55,10 +58,7 @@ namespace DeeJay.Services
         internal async ValueTask JoinVoiceAsync(IVoiceChannel channel)
         {
             if (channel == null)
-            {
-                Log.Error("Attempted to join a null voice channel.");
                 return;
-            }
 
             if (channel.Id == VoiceChannelId && AudioClient?.ConnectionState == ConnectionState.Connected)
                 return;
@@ -80,14 +80,77 @@ namespace DeeJay.Services
             if (voiceChannel == null)
                 return;
 
-            if (NowPlaying != null)
-                await PauseAsync(out _);
-
+            await PauseAsync();
             await voiceChannel.DisconnectAsync();
             AudioClient?.Dispose();
-
             VoiceChannelId = 0;
             AudioClient = null;
+        }
+
+        /// <summary>
+        ///     Pauses playback.
+        /// </summary>
+        internal async ValueTask<bool> PauseAsync()
+        {
+            //if the audioclient isnt null
+            if (Playing && SongQueue.TryPeek(out var song))
+            {
+                Log.Info("Pausing playback...");
+                State = MusicServiceState.Paused;
+                song.Progress.Stop();
+
+                await SongCanceller.CancelAsync();
+                return true;
+            }
+
+            //incase something nefarious is going on
+            if (Playing)
+                State = MusicServiceState.None;
+
+            if (Streaming && StreamTarget != null)
+            {
+                Log.Info("Pausing stream playback...");
+                State = MusicServiceState.Paused;
+                await SongCanceller.CancelAsync();
+                return true;
+            }
+
+            //incase something nefarious is going on
+            if (Streaming)
+                State = MusicServiceState.None;
+
+            return false;
+        }
+
+        /// <summary>
+        ///     Attempts to enqueue a song to be played.
+        /// </summary>
+        /// <param name="song">A song to be played.</param>
+        internal async ValueTask EnqueueAsync(Song song)
+        {
+            SongQueue.Enqueue(song);
+
+            if (Streaming)
+                await PauseAsync();
+        }
+
+        /// <summary>
+        ///     Sets a stream to play live when no other music is being played.
+        /// </summary>
+        /// <param name="stream">A stream to be played.</param>
+        internal async ValueTask SetLiveAsync(Song stream)
+        {
+            if (Streaming)
+            {
+                await PauseAsync();
+                await (StreamTarget?.DisposeAsync() ?? default);
+                StreamTarget = stream;
+                await PlayAsync();
+            } else
+            {
+                await (StreamTarget?.DisposeAsync() ?? default);
+                StreamTarget = stream;
+            }
         }
 
         /// <summary>
@@ -98,14 +161,10 @@ namespace DeeJay.Services
             //play through the queue until otherwise told
             while (true)
                 //if we're not playing a song and there's one available...
-                if (!SongQueue.IsEmpty)
+                if (!SongQueue.IsEmpty || StreamTarget != null)
                     try
                     {
-                        State = MusicServiceState.Playing;
-                        //preload the first 3 songs
-                        foreach (var song in SongQueue.Take(3))
-                            song.TrySetData();
-
+                        await AudioClient.SetSpeakingAsync(true);
                         await PlaySongAsync();
                     } catch (Exception)
                     {
@@ -125,7 +184,7 @@ namespace DeeJay.Services
         /// </summary>
         internal ValueTask PlayAsync()
         {
-            if (!Playing)
+            if (!Playing && !Streaming)
             {
                 Log.Info("Beginning playback...");
                 PlayingTask = AsyncPlay();
@@ -139,60 +198,41 @@ namespace DeeJay.Services
         /// </summary>
         private async ValueTask PlaySongAsync()
         {
-            if (SongQueue.TryPeek(out var song))
+            var designatedChannel = await Client.GetTextChannelAsync(GuildId, DesignatedChannelId);
+            await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int) Enums.b128k);
+
+            try
             {
-                var dataStream = await song.DataTask;
-                var designatedChannel = await Client.GetTextChannelAsync(GuildId, DesignatedChannelId);
+                //if there is a song in the queue, it takes priority
+                if (SongQueue.TryPeek(out var song))
+                {
+                    State = MusicServiceState.Playing;
+                    if (designatedChannel != null)
+                        await designatedChannel.SendMessageAsync($"Now playing {song.ToString(false)}");
 
-                await using var audioStream = AudioClient.CreatePCMStream(AudioApplication.Music, (int) Enums.b128k);
-                var songCanceller = Cancellers.GetOrAdd("song");
+                    song.Progress.Start();
+                    await song.StreamAsync(audioStream, SongCanceller);
+                    song.Progress.Stop();
 
-                //seek if we're resuming from a pause
-                if (song.Progress.Elapsed > TimeSpan.Zero)
-                    await song.SeekAsync(song.Progress.Elapsed);
+                    //if song ended too early, something probably went wrong
+                    if (song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(10)))
+                        Log.Error($"Playback failure. {song.ToString(true)}");
 
-                await (designatedChannel?.SendMessageAsync($"Now playing {song.ToString(false)}") ?? Task.CompletedTask);
+                    SongQueue.TryDequeue(out _);
+                    await song.DisposeAsync();
+                } else if (StreamTarget != null)
+                {
+                    State = MusicServiceState.Streaming;
 
-                //song playback
-                song.Progress.Start();
-                await dataStream.CopyToAsync(audioStream, songCanceller);
-                await audioStream.FlushAsync(songCanceller);
-                song.Progress.Stop();
-
-                //if song ended too early, something probably went wrong
-                if (song.Progress.Elapsed < song.Duration.Subtract(TimeSpan.FromSeconds(10)))
-                    Log.Error($"Playback failure. {song.ToString(true)}");
-
-                SongQueue.TryDequeue(out _);
-                await song.DisposeAsync();
-            }
-        }
-
-        /// <summary>
-        ///     Pauses playback.
-        /// </summary>
-        /// <param name="song">The song that was paused.</param>
-        internal ValueTask<bool> PauseAsync(out Song song)
-        {
-            song = default;
-            var songCanceller = Cancellers.GetOrAdd("song");
-
-            //if the audioclient isnt null
-            if (Playing && SongQueue.TryPeek(out song))
+                    if (designatedChannel != null)
+                        await designatedChannel.SendMessageAsync($"Now streaming {StreamTarget.ToString(false)}");
+                    await StreamTarget.StreamAsync(audioStream, SongCanceller);
+                }
+            } catch (Exception)
             {
-                Log.Info("Pausing playback...");
-                State = MusicServiceState.Paused;
-                song.Progress.Stop();
-
-                return songCanceller.CancelAsync()
-                    .ReType(true);
+                await audioStream.FlushAsync();
+                throw;
             }
-
-            //incase something nefarious is going on
-            if (Playing)
-                State = MusicServiceState.None;
-
-            return new ValueTask<bool>(false);
         }
 
         /// <summary>
@@ -206,9 +246,10 @@ namespace DeeJay.Services
 
             async ValueTask<bool> InnerSkipSongAsync()
             {
-                if (await PauseAsync(out _) && SongQueue.TryDequeue(out var outSong))
+                if (await PauseAsync() && SongQueue.TryDequeue(out var outSong))
                 {
                     Log.Info($"Skipping {outSong.Title}...");
+
                     await PlayAsync();
                     await outSong.DisposeAsync();
 
@@ -231,7 +272,7 @@ namespace DeeJay.Services
         {
             Song result;
 
-            if (index < 1)
+            if (index < 1 || index > SongQueue.Count)
                 return null;
 
             if (index == 1)
@@ -270,8 +311,7 @@ namespace DeeJay.Services
             {
                 if (Connected)
                 {
-                    await Cancellers.GetOrAdd("disconnect")
-                        .CancelAsync();
+                    await DisconnectCanceller.CancelAsync();
                     var voiceChannel = await Client.GetVoiceChannelAsync(GuildId, VoiceChannelId);
 
                     await LeaveVoiceAsync();
@@ -280,7 +320,7 @@ namespace DeeJay.Services
                 } else
                 {
                     Connected = true;
-                    await PauseAsync(out _);
+                    await PauseAsync();
                     await LeaveVoiceAsync();
                 }
             } catch (Exception e)
@@ -292,8 +332,7 @@ namespace DeeJay.Services
         public async ValueTask DisconnectAsync(bool wait)
         {
             Log.Warn($"Disconnecting... (WaitForReconnect={wait})");
-            var token = Cancellers.GetOrAdd("disconnect")
-                .Token;
+            var token = DisconnectCanceller.Token;
 
             #pragma warning disable 4014
             if (wait)
@@ -313,6 +352,8 @@ namespace DeeJay.Services
                 await LeaveVoiceAsync();
             }
         }
+
+        public Canceller DisconnectCanceller { get; }
 
         public ulong GuildId { get; }
         public Logger Log { get; }

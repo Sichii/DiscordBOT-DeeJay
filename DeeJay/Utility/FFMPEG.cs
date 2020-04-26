@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
-using NAudio.Wave;
+using DeeJay.YouTube;
+using Discord.Audio;
 using NLog;
 
 namespace DeeJay.Utility
@@ -16,26 +16,24 @@ namespace DeeJay.Utility
     {
         private static readonly Logger Log = LogManager.GetLogger(nameof(FFMPEG));
 
-        /// <summary>
-        ///     Runs ffmpeg.exe with pre-defined arguments
-        /// </summary>
-        /// <param name="args">Input argument.</param>
-        /// <param name="token">Cancellation token.</param>
-        internal static async Task<WaveStream> RunAsync(string args, CancellationToken token)
+        internal static async Task StreamAsync(
+            Song song, AudioOutStream stream, CancellationToken token)
         {
-            var dataStream = new MemoryStream();
-            WaveStream waveStream = default;
-
             try
-            {
+            {   //no banner, no logs, seek to elapsed if necessary, auto reconnect to input 1 with max delay of 4 seconds
+                var preInput = $"-hide_banner -loglevel quiet{(song.Progress.Elapsed != default ? $" -ss {song.Progress.Elapsed.ToStringF()}" : string.Empty)} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 4";
+                //input is a direct link to media
+                var input = $"-i \"{song.DirectLink}\"";
+                //output has no video if there is video, 2 channels, normalized loudness, 15% volume, 16bit pcm/wav, 48000hz, piped to output 1 (standardoutput)
+                var postInput =
+                    $"{(song.ResultFrom.IsLive ? "-vn " : string.Empty)}-ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.15\" -f s16le -ar 48000 pipe:1";
+
                 using var ffmpeg = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
                         FileName = CONSTANTS.FFMPEG_PATH,
-                        //no text, seek to previously elapsed if necessary, 2 channel, 75% volume, pcm s16le stream format, 48000hz, pipe 1
-                        Arguments =
-                            $"-hide_banner -loglevel quiet -i \"{args}\" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.15\" -f s16le -ar 48000 pipe:1",
+                        Arguments = $@"{preInput} {input} {postInput}",
                         CreateNoWindow = true,
                         UseShellExecute = false,
                         RedirectStandardOutput = true
@@ -44,23 +42,25 @@ namespace DeeJay.Utility
 
                 ffmpeg.Start();
 
-                while (!ffmpeg.HasExited)
-                    await ffmpeg.StandardOutput.BaseStream.CopyToAsync(dataStream, token);
+                Log.Info($"Streaming \"{song.Title}\"...");
+                if(!song.ResultFrom.IsLive)
+                    song.Progress.Start();
 
-                await ffmpeg.StandardOutput.BaseStream.CopyToAsync(dataStream, token);
-                waveStream = new RawSourceWaveStream(dataStream, new WaveFormat(48000, 16, 2));
+                while (!token.IsCancellationRequested && !ffmpeg.HasExited)
+                    await ffmpeg.StandardOutput.BaseStream.CopyToAsync(stream, token);
 
-                Log.Debug("Success.");
-                waveStream.CurrentTime = TimeSpan.Zero;
-                return waveStream;
+                await stream.FlushAsync();
+
+                if (!song.ResultFrom.IsLive)
+                    song.Progress.Stop();
             } catch (OperationCanceledException)
             {
-                Log.Error("Failure.");
-                await dataStream.DisposeAsync();
-                if (waveStream != null)
-                    await waveStream.DisposeAsync();
+                Log.Error("Operation canceled.");
 
-                return waveStream;
+                if (!song.ResultFrom.IsLive)
+                    song.Progress.Stop();
+
+                throw;
             }
         }
     }

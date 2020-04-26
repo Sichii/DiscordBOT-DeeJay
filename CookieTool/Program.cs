@@ -38,7 +38,7 @@ namespace CookieTool
                     Arguments = @"/c start https://www.youtube.com/watch?v=kLc2f6HbQiY",
                     UseShellExecute = false
                 },
-                EnableRaisingEvents = true,
+                EnableRaisingEvents = true
             };
 
             chrome.Exited += (s, e) => source.TrySetResult(true);

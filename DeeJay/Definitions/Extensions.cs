@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Discord;
+using NLog;
 
 namespace DeeJay.Definitions
 {
@@ -15,6 +16,17 @@ namespace DeeJay.Definitions
         internal static bool ContainsI(this string str1, string str2) => str1.IndexOf(str2, StringComparison.OrdinalIgnoreCase) != -1;
 
         internal static bool EqualsI(this string str1, string str2) => str1.Equals(str2, StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        ///     Creates an exception, logs the message, and returns the exception object to be thrown.
+        /// </summary>
+        /// <param name="logger">A logger object.</param>
+        /// <param name="message">An exception message.</param>
+        internal static Exception Exception(this Logger logger, string message)
+        {
+            logger.Error(message);
+            return new Exception(message);
+        }
 
         /// <summary>
         ///     Repurposes a task to return a different type.
@@ -60,7 +72,7 @@ namespace DeeJay.Definitions
         ///     Converts a timespan into a more easily readable string.
         /// </summary>
         /// <param name="timeSpan">A timespan object.</param>
-        internal static string ToReadableString(this TimeSpan timeSpan)
+        internal static string ToStringF(this TimeSpan timeSpan)
         {
             var hours = timeSpan.Hours;
             var minutes = timeSpan.Minutes;
@@ -73,7 +85,7 @@ namespace DeeJay.Definitions
         ///     Calculates the pixel width of a string.
         /// </summary>
         /// <param name="str">A string object.</param>
-        internal static float CalculateWidth(this string str) =>
+        internal static float MeasureString(this string str) =>
             CONSTANTS.GRAPHICS.MeasureString(str, CONSTANTS.WHITNEY_FONT)
                 .Width;
 
@@ -86,7 +98,7 @@ namespace DeeJay.Definitions
         internal static IEnumerable<string> NormalizeWidth(this IEnumerable<string> strings, TextAlignment alignment)
         {
             var enumerable = strings as string[] ?? strings.ToArray();
-            var widths = enumerable.Select(str => str.CalculateWidth())
+            var widths = enumerable.Select(str => str.MeasureString())
                 .ToArray();
             var maxWidth = widths.Max();
 

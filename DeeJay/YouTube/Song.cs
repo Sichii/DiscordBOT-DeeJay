@@ -1,12 +1,12 @@
 ﻿using System;
 using System.Diagnostics;
-using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DeeJay.Definitions;
 using DeeJay.Utility;
+using Discord.Audio;
 using Discord.WebSocket;
-using NAudio.Wave;
 
 namespace DeeJay.YouTube
 {
@@ -16,7 +16,6 @@ namespace DeeJay.YouTube
     internal sealed class Song : IAsyncDisposable
     {
         private SemaphoreSlim Sync = new SemaphoreSlim(1, 1);
-        internal Task<WaveStream> DataTask { get; private set; }
         internal Canceller Canceller { get; private set; }
         internal Stopwatch Progress { get; }
         internal SocketUser RequestedBy { get; }
@@ -25,6 +24,7 @@ namespace DeeJay.YouTube
         internal string Title { get; }
         internal TimeSpan Duration { get; }
         internal string ErrorMsg { get; }
+        internal bool IsLive => ResultFrom.IsLive;
 
         /// <summary>
         ///     Constructor to collect song info when an error occurs.
@@ -60,6 +60,9 @@ namespace DeeJay.YouTube
             Canceller = canceller;
         }
 
+        internal static Song Copy(Song song) =>
+            new Song(song.RequestedBy, song.ResultFrom, song.DirectLink, song.Title, song.Duration, new Canceller());
+
         /// <summary>
         ///     Creates a song object from a queue request.
         /// </summary>
@@ -71,16 +74,19 @@ namespace DeeJay.YouTube
             var result = await request.ExecuteAsync(false, canceller);
 
             //if the result was too long to play, retry and omit "extended" results
-            if (result.Duration > CONSTANTS.MAX_DURATION)
+            if (!result.IsLive && result.Duration > CONSTANTS.MAX_DURATION)
             {
                 await Task.Delay(2000, canceller);
                 result = await request.ExecuteAsync(true, canceller);
             }
 
             //if the result was still too long, set an appropriate error
-            if (result.Duration > CONSTANTS.MAX_DURATION)
+            if (!result.IsLive && result.Duration > CONSTANTS.MAX_DURATION)
                 return new Song(requestedBy, result, result.Title, result.Duration,
-                    $"{result.Title} duration too long. Duration: {result.Duration.ToReadableString()} MaxDuration: {CONSTANTS.MAX_DURATION.ToReadableString()}");
+                    $"{result.Title} duration too long. Duration: {result.Duration.ToStringF()} MaxDuration: {CONSTANTS.MAX_DURATION.ToStringF()}");
+
+            if (result.IsLive)
+                return new Song(requestedBy, result, result.DirectURI, result.Title, TimeSpan.MaxValue, canceller);
 
             //if search failed, duration will be 0
             return result.Duration == TimeSpan.MinValue
@@ -88,34 +94,17 @@ namespace DeeJay.YouTube
                 : new Song(requestedBy, result, result.DirectURI, result.Title, result.Duration, canceller);
         }
 
-        /// <summary>
-        ///     Asynchronously downloads and re-encodes the song via ffmpeg.
-        /// </summary>
-        internal async void TrySetData()
+        internal async Task StreamAsync(AudioOutStream outStream, CancellationToken token)
         {
             await Sync.WaitAsync();
 
             try
             {
-                if (DataTask != null)
-                    return;
-
-                DataTask = FFMPEG.RunAsync(DirectLink, Canceller);
+                await FFMPEG.StreamAsync(this, outStream, token);
             } finally
             {
                 Sync.Release();
             }
-        }
-
-        /// <summary>
-        ///     Detects the bitrate of the audio, and seeks to the specified time in the song.
-        ///     <inheritdoc cref="Stream.Seek" />
-        /// </summary>
-        /// <param name="seekTime">The time to seek to.</param>
-        internal async Task SeekAsync(TimeSpan seekTime)
-        {
-            var stream = await DataTask;
-            stream.CurrentTime = seekTime > stream.TotalTime ? TimeSpan.Zero : seekTime;
         }
 
         /// <summary>
@@ -126,7 +115,6 @@ namespace DeeJay.YouTube
             try
             {
                 await Canceller.CancelAsync();
-                await ((await DataTask)?.DisposeAsync() ?? default);
             } catch
             {
                 //ignored
@@ -142,10 +130,8 @@ namespace DeeJay.YouTube
         private void Dispose()
         {
             Sync?.Dispose();
-            DataTask?.Dispose();
             Canceller?.Dispose();
             Sync = null;
-            DataTask = null;
             Canceller = null;
             GC.Collect();
         }
@@ -156,7 +142,22 @@ namespace DeeJay.YouTube
         ///     Used when displaying the currently playing song.
         /// </summary>
         /// <param name="showProgress">Whether or not to show current progress in the song.</param>
-        public string ToString(bool showProgress) =>
-            $"{Title} [{(showProgress ? $"{Progress.Elapsed.ToReadableString()} / " : string.Empty)}{Duration.ToReadableString()}] (R: {RequestedBy.Username})";
+        public string ToString(bool showProgress)
+        {
+            var builder = new StringBuilder();
+
+            builder.Append(Title);
+
+            if (Duration == TimeSpan.MaxValue || Duration == TimeSpan.Zero || Duration == TimeSpan.MinValue)
+                return builder.ToString();
+
+            builder.Append(" [");
+
+            if (showProgress)
+                builder.Append($"{Progress.Elapsed.ToStringF()} / ");
+
+            builder.Append($"{Duration.ToStringF()}] (R: {RequestedBy.Username})");
+            return builder.ToString();
+        }
     }
 }

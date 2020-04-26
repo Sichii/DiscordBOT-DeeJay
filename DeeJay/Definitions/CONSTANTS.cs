@@ -21,7 +21,7 @@ namespace DeeJay.Definitions
 
         static CONSTANTS()
         {
-            using var fontStream = new MemoryStream(Resources.whitney_light);
+            using var fontStream = new MemoryStream(Resources.whitney_book);
 
             var pfcData = fontStream.ToArray();
             var pinnedArr = GCHandle.Alloc(pfcData, GCHandleType.Pinned);
@@ -33,7 +33,7 @@ namespace DeeJay.Definitions
             var ff = PFC.Families[0];
             WHITNEY_FONT = new Font(ff, 16, FontStyle.Regular);
             SPACE_LENGTH = GRAPHICS.MeasureString(" ", WHITNEY_FONT)
-                               .Width - 2;
+                .Width * 0.7;
         }
     }
 }

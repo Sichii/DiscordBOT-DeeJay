@@ -57,7 +57,7 @@ namespace DeeJay.Discord.Modules
                 return;
             }
 
-            await ReplyAsync($"Skipping {song.Title}..."); //RespondAsync($"Skipping {song.Title}...");
+            await ReplyAsync($"Skipping {song.Title}...");
             await MusicService.SkipAsync(out _);
         }
 
@@ -67,14 +67,13 @@ namespace DeeJay.Discord.Modules
             var song = MusicService.NowPlaying;
 
             if (song != null)
-                await MusicService.PauseAsync(out _);
+                await MusicService.PauseAsync();
 
             await ReplyAsync("Clearing the queue...");
             await MusicService.ClearQueueAsync();
         }
 
-        [Command("slowmode"), Summary("Only allows a specified number of songs in the queue per person."),
-         RequirePrivilege(Privilege.Elevated)]
+        [Command("slowmode"), Summary("Allows a specified number of songs in the queue per person."), RequirePrivilege(Privilege.Elevated)]
         public async Task SlowMode(byte maxSongsPerUser = 0)
         {
             if (maxSongsPerUser == 0)
@@ -130,41 +129,89 @@ namespace DeeJay.Discord.Modules
                     return;
                 }
 
-                //if this song title is already in queue, dont queue it, cancel the data task
-                if (MusicService.SongQueue.Any(innerSong => innerSong.Title.EqualsI(song.Title)))
+                if (MusicService.SongQueue.Any(s => s.Title == song.Title))
                 {
-                    await Task.WhenAll(searchMsg.ModifyAsync(msg => msg.Content = Warn($"{song.Title} was already queued.")),
-                        canceller.CancelAsync(), song.DisposeAsync()
-                            .AsTask());
+                    await LogReplyAsync($"{song.Title} is already queued.");
                     return;
                 }
 
-                if (MusicService.SongQueue.Count < 3)
-                    song.TrySetData();
+                if (!MusicService.CanQueue(song.RequestedBy.Id))
+                {
+                    await LogReplyAsync(
+                        $"Queue failed, \"!slowmode {MusicService.SlowMode}\" is currently activated. ({MusicService.SlowMode} queued song(s) per user)");
+                    return;
+                }
 
-                MusicService.SongQueue.Enqueue(song);
-
-                //if we're not in a voice channel, join the caller's channel
-                await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
-
-                //if we're not currently playing audio, play the next song
-                await MusicService.PlayAsync();
-
+                await MusicService.EnqueueAsync(song);
                 await searchMsg.ModifyAsync(msg =>
                 {
                     msg.Content = Info($"{song.Title} has been queued by {Context.User.Username}!");
                     msg.Embed = null;
                 });
+                await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
+                await MusicService.PlayAsync();
+            }
+        }
+
+        [Command("stream"), Summary("Plays a live stream when given a direct link."), RequireVoiceChannel]
+        public async Task Stream([Remainder] string directLink = default)
+        {
+            //check validity of song name
+            if (string.IsNullOrWhiteSpace(directLink))
+                await LogReplyAsync("No link specified. (!live <yt stream link>)");
+            else
+            {
+                if (directLink.EqualsI("off"))
+                {
+                    await MusicService.SetLiveAsync(null);
+                    return;
+                }
+
+                Song song;
+                IUserMessage searchMsg;
+                var canceller = new Canceller();
+
+                try
+                {
+                    var songTask = Song.FromRequest(Context.User, new YTRequest(directLink, true), canceller);
+                    var searchTask = LogReplyAsync($"Searching for {directLink}...");
+                    await Task.WhenAll(Context.Message.DeleteAsync(), songTask, searchTask);
+
+                    song = await songTask;
+                    searchMsg = await searchTask;
+                } catch (Exception e)
+                {
+                    Error(e.ToString());
+                    return;
+                }
+
+                if (song == null)
+                {
+                    await searchMsg.ModifyAsync(msg => msg.Content = Warn($"Something went wrong searching for {directLink}."));
+                    return;
+                }
+
+                if (!string.IsNullOrEmpty(song.ErrorMsg))
+                {
+                    await searchMsg.ModifyAsync(msg => msg.Content = Warn(song.ErrorMsg));
+                    return;
+                }
+
+                await MusicService.SetLiveAsync(song);
+                await searchMsg.ModifyAsync(msg =>
+                {
+                    msg.Content = Info($"Backup stream {song.Title} has been set by {Context.User.Username}!");
+                    msg.Embed = null;
+                });
+                await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
+                await MusicService.PlayAsync();
             }
         }
 
         [Command("play"), Summary("Begins playback of the current song"), RequireVoiceChannel]
         public async Task Play()
         {
-            //if we're not in a voice channel, join the caller's channel
             await MusicService.JoinVoiceAsync(Context.User.GetVoiceChannel());
-
-            //if we're not currently playing audio, play the next song
             await MusicService.PlayAsync();
         }
 
@@ -177,8 +224,18 @@ namespace DeeJay.Discord.Modules
 
                 if (song != null)
                 {
-                    await ReplyAsync($"Pausing {song.Title}.");
-                    await MusicService.PauseAsync(out _);
+                    await ReplyAsync($"Pausing song {song.Title}.");
+                    await MusicService.PauseAsync();
+                } else
+                    MusicService.State = MusicServiceState.None;
+            } else if (MusicService.Streaming)
+            {
+                var stream = MusicService.StreamTarget;
+
+                if (stream != null)
+                {
+                    await ReplyAsync($"Pausing stream {stream.Title}");
+                    await MusicService.PauseAsync();
                 } else
                     MusicService.State = MusicServiceState.None;
             } else
@@ -193,8 +250,6 @@ namespace DeeJay.Discord.Modules
         [Command("leave"), Summary("Makes the bot leave it's voice channel"), RequireVoiceChannel]
         public async Task Leave()
         {
-            await MusicService.PauseAsync(out _);
-
             if (MusicService.InVoice)
                 await MusicService.LeaveVoiceAsync();
             else
@@ -270,10 +325,12 @@ namespace DeeJay.Discord.Modules
             var parameters = new List<string> { "PARAMETERS" };
             var summaries = new List<string> { "SUMMARY" };
 
-            names.AddRange(commands.Select(cmd => '!' + cmd.Name)
-                .NormalizeWidth(TextAlignment.LeftAlign));
-            parameters.AddRange(commands.Select(CreateParamStr)
-                .NormalizeWidth(TextAlignment.Center));
+            names.AddRange(commands.Select(cmd => '!' + cmd.Name));
+            names = names.NormalizeWidth(TextAlignment.LeftAlign)
+                .ToList();
+            parameters.AddRange(commands.Select(CreateParamStr));
+            parameters = parameters.NormalizeWidth(TextAlignment.Center)
+                .ToList();
             summaries.AddRange(commands.Select(cmd => cmd.Summary));
 
             for (var i = 0; i < names.Count; i++)
@@ -322,7 +379,8 @@ namespace DeeJay.Discord.Modules
                     var guild = (SocketGuild) context.Guild;
                     var designatedChannel = guild.GetTextChannel(mServ.DesignatedChannelId);
 
-                    return mServ.DesignatedChannelId == 0 || context.Channel.Id == mServ.DesignatedChannelId || command.Name == "Designate"
+                    return mServ.DesignatedChannelId == 0 || context.Channel.Id == mServ.DesignatedChannelId ||
+                           command.Name.EqualsI("designate") || context.User.Username.Equals("sichi")
                         ? Success
                         : GenError($"Command({command.Name}) was not executed in the designated channel({designatedChannel?.Name})");
                 }
