@@ -127,13 +127,15 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             return;
         }
         
-        if (CurrentVoiceChannel is null)
-            await JoinVoiceAsync(context);
-
         var stream = new YtdlSong(guildUser, searchResult, false);
         Queue.Enqueue(stream);
         
         await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Added \"{stream.Title}\" to queue");
+        
+        if (CurrentVoiceChannel is null)
+            await InnerJoinVoiceAsync(context);
+
+        await RequestPlayAsync();
     }
 
     private bool CanQueue(ulong userId) => !GuildOptions.MaxSongsPerPerson.HasValue
@@ -281,7 +283,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
                 await timer.WaitForNextTickAsync(stoppingToken);
 
                 await ProcessRequestAsync();
-                
+
                 switch (State)
                 {
                     case MusicStreamingServiceState.Idle:
@@ -322,7 +324,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
                             else
                                 SetState(MusicStreamingServiceState.Idle);
                         }
-                        
+
                         break;
                     case MusicStreamingServiceState.Streaming:
                         if (!Queue.IsEmpty)
@@ -332,7 +334,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
 
                             break;
                         }
-                        
+
                         if (Player is null || LiveStream is null)
                             SetState(MusicStreamingServiceState.Idle);
 
@@ -344,6 +346,10 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             {
                 //ignored
                 return;
+            } catch (Exception e)
+            {
+                Logger.LogError(e, "Error in music streaming service");
+                //ignored
             }
         }
     }

@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace DeeJay.Services;
 
 /// <inheritdoc />
-public class StreamingServiceFactory : IStreamingServiceFactory
+public sealed class StreamingServiceFactory : IStreamingServiceFactory
 {
     private readonly ISearchService<ISearchResult> SearchService;
     private readonly IGuildOptionsRepository GuildOptionsRepository;

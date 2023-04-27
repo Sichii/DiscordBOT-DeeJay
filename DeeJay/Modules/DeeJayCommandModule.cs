@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.Runtime.CompilerServices;
+using System.Text;
 using DeeJay.Abstractions;
 using DeeJay.Attributes;
 using DeeJay.Definitions;
@@ -32,21 +33,32 @@ public class DeeJayCommandModule : InteractionModuleBase
     /// <returns></returns>
     [SlashCommand("talkhere", "Makes the bot use the current text channel for commands", runMode: RunMode.Async),
      RequirePrivilege(Privilege.Elevated)]
-    public Task TalkHere() => StreamingService.SetDesignatedChannelAsync(Context);
+    public Task TalkHere()
+    {
+        LogCommand();
+        return StreamingService.SetDesignatedChannelAsync(Context);
+    }
 
     /// <summary>
     ///     Skips the current song or stream
     /// </summary>
     [SlashCommand("skip", "Skips the current song", runMode: RunMode.Async), RequirePrivilege(Privilege.Elevated), RequireVoiceChannel]
-    public Task Skip() => StreamingService.SkipAsync(Context);
-
+    public Task Skip()
+    {
+        LogCommand();
+        return StreamingService.SkipAsync(Context);
+    }
 
     /// <summary>
     ///     Clears all songs from the queue
     /// </summary>
     [SlashCommand("clear", "Clears all songs from the queue", runMode: RunMode.Async), RequirePrivilege(Privilege.Elevated),
      RequireVoiceChannel]
-    public Task Clear() => StreamingService.ClearQueueAsync(Context);
+    public Task Clear()
+    {
+        LogCommand();
+        return StreamingService.ClearQueueAsync(Context);
+    }
 
     /// <summary>
     ///    Sets the maximum number of songs in the queue per person
@@ -54,17 +66,19 @@ public class DeeJayCommandModule : InteractionModuleBase
     /// <param name="maxSongsPerUser"></param>
     [SlashCommand("slowmode", "Limits the number of songs in the queue per person", runMode: RunMode.Async),
      RequirePrivilege(Privilege.Elevated)]
-    public Task SlowMode(byte maxSongsPerUser = 0) => StreamingService.SetSlowModeAsync(Context, maxSongsPerUser);
+    public Task SlowMode(byte maxSongsPerUser = 0)
+    {
+        LogCommand();
+        return StreamingService.SetSlowModeAsync(Context, maxSongsPerUser);
+    }
 
     /// <summary>
     ///    Queues a song by name
     /// </summary>
-    /// <param name="songNameParts"></param>
     [SlashCommand("queue", "Queues a song by name", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task Queue(params string[] songNameParts)
+    public Task Queue(string songName)
     {
-        var songName = string.Join(" ", songNameParts);
-
+        LogCommand();
         return StreamingService.QueueSongAsync(Context, songName);
     }
 
@@ -72,19 +86,31 @@ public class DeeJayCommandModule : InteractionModuleBase
     ///     Begins playback of the current song
     /// </summary>
     [SlashCommand("play", "Begins playback of the current song", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task Play() => StreamingService.PlayAsync(Context);
+    public Task Play()
+    {
+        LogCommand();
+        return StreamingService.PlayAsync(Context);
+    }
 
     /// <summary>
     ///    Paues playback of the current song
     /// </summary>
     [SlashCommand("pause", "Paues playback of the current song", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task Pause() => StreamingService.PauseAsync(Context);
+    public Task Pause()
+    {
+        LogCommand();
+        return StreamingService.PauseAsync(Context);
+    }
 
     /// <summary>
     ///     Makes the bot leave the voice channel
     /// </summary>
     [SlashCommand("leave", "Makes the bot leave the voice channel", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task Leave() => StreamingService.LeaveVoiceAsync(Context);
+    public Task Leave()
+    {
+        LogCommand();
+        return StreamingService.LeaveVoiceAsync(Context);
+    }
 
     /// <summary>
     ///     Displays info about the current song
@@ -92,6 +118,7 @@ public class DeeJayCommandModule : InteractionModuleBase
     [SlashCommand("showsong", "Displays info about the current song", runMode: RunMode.Async), RequireVoiceChannel]
     public Task ShowSong()
     {
+        LogCommand();
         var nowPlaying = StreamingService.NowPlaying;
 
         if (nowPlaying == null)
@@ -106,6 +133,7 @@ public class DeeJayCommandModule : InteractionModuleBase
     [SlashCommand("shownext", "Displays info about the next song", runMode: RunMode.Async), RequireVoiceChannel]
     public async Task ShowNext()
     {
+        LogCommand();
         var next = await StreamingService.GetQueueAsync(Context).Skip(1).FirstOrDefaultAsync();
 
         if (next == null)
@@ -124,6 +152,7 @@ public class DeeJayCommandModule : InteractionModuleBase
     [SlashCommand("showqueue", "Displays info about all songs in the queue", runMode: RunMode.Async), RequireVoiceChannel]
     public async Task ShowQueue()
     {
+        LogCommand();
         var builder = new StringBuilder();
         var index = 0;
         
@@ -143,22 +172,29 @@ public class DeeJayCommandModule : InteractionModuleBase
     /// </summary>
     /// <param name="songIndex"></param>
     [SlashCommand("remove", "Removes a song from the queue", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task Remove(int songIndex) => StreamingService.RemoveSongAsync(Context, songIndex);
+    public Task Remove(int songIndex)
+    {
+        LogCommand();
+        return StreamingService.RemoveSongAsync(Context, songIndex);
+    }
 
     /// <summary>
     ///   Displays a list of commands
     /// </summary>
     [SlashCommand("help", "Displays a list of commands", runMode: RunMode.Async)]
-    public Task Help() => throw new NotImplementedException();
-    
+    public Task Help()
+    {
+        LogCommand();
+        throw new NotImplementedException();
+    }
+
     /// <summary>
     ///     Plays a live stream from a direct link
     /// </summary>
-    /// <param name="streamUrlParts"></param>
     [SlashCommand("stream", "Plays a live stream from a direct link", runMode: RunMode.Async), RequireVoiceChannel]
-    public async Task Stream(params string[] streamUrlParts)
+    public async Task Stream(string streamUrl)
     {
-        var streamUrl = string.Join(" ", streamUrlParts);
+        LogCommand();
         var uri = new Uri(streamUrl);
 
         if (!uri.IsAbsoluteUri)
@@ -166,4 +202,7 @@ public class DeeJayCommandModule : InteractionModuleBase
 
         await StreamingService.SetLiveAsync(Context, uri);
     }
+
+    private void LogCommand([CallerMemberName] string? commandName = null) =>
+        Logger.LogTrace("{Command} executed by {User}", commandName, Context.User);
 }

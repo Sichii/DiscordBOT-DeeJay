@@ -7,7 +7,7 @@ namespace DeeJay.Utility;
 /// Represents a payload that can be observed and awaited
 /// </summary>
 /// <typeparam name="T">The type of the payload</typeparam>
-public class ObservablePayload<T>
+public sealed class ObservablePayload<T>
 {
     private readonly TaskCompletionSource Source;
     /// <summary>

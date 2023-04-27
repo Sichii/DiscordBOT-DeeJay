@@ -61,7 +61,7 @@ public sealed class YtdlStreamPlayer : IStreamPlayer
             builder.Append(" -vn");
         
         //output has 2 channels, normalized loudness, 15% volume, 16bit pcm/wav, 48000hz, piped to output 1 (standardoutput)
-        builder.Append(" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.15\" -f s16le -ar 48000 pipe:1");
+        builder.Append(" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.5\" -f s16le -ar 48000 pipe:1");
         
         using var ffmpeg = new Process
         {
@@ -87,7 +87,7 @@ public sealed class YtdlStreamPlayer : IStreamPlayer
 
         try
         {
-            await using var audioStream = audioClient.CreatePCMStream(AudioApplication.Music, (int)BitRate.b128k, 1500);
+            await using var audioStream = audioClient.CreatePCMStream(AudioApplication.Music, (int)BitRate.b128k, 2500);
 
             while (!Ctx.IsCancellationRequested && !ffmpeg.HasExited)
                 await ffmpeg.StandardOutput.BaseStream.CopyToAsync(audioStream, Ctx.Token);

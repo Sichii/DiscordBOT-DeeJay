@@ -34,14 +34,11 @@ public sealed class YtdlSearchService : ISearchService<ISearchResult>
         cancellationToken?.Register(() => source.TrySetCanceled());
 
         Logger.LogTrace("Starting ytdl search for {@Query}", query);
-
-        var httpClient = new HttpClient();
-        var response = await httpClient.GetAsync("");
-
+        
         //construct args
         var args = YtdlArgs;
         
-        if(Options.ProxyUrl is not null)
+        if(!string.IsNullOrEmpty(Options.ProxyUrl))
             args += $" --proxy {Options.ProxyUrl}";
 
         args += $" \"ytsearch:{query}\"";

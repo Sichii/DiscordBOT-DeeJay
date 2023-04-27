@@ -5,7 +5,7 @@ namespace DeeJay.Models;
 /// <summary>
 /// Represents the options for a guild
 /// </summary>
-public class GuildOptions : IGuildOptions
+public sealed class GuildOptions : IGuildOptions
 {
     /// <inheritdoc />
     public int? MaxSongsPerPerson { get; set; }

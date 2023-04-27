@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using DeeJay.Abstractions;
+using DeeJay.Modules;
 using DeeJay.Services.Options;
 using Discord;
 using Discord.Interactions;
@@ -13,7 +14,7 @@ using Microsoft.Extensions.Options;
 namespace DeeJay.Services;
 
 /// <inheritdoc cref="IDiscordClientService"/>
-public class DiscordClientService : BackgroundService, IDiscordClientService
+public sealed class DiscordClientService : BackgroundService, IDiscordClientService
 {
     /// <inheritdoc />
     public DiscordSocketClient SocketClient { get; }
@@ -28,19 +29,19 @@ public class DiscordClientService : BackgroundService, IDiscordClientService
     /// <summary>
     ///     Creates a new <see cref="DiscordClientService"/>
     /// </summary>
-    /// <param name="socketClient">The discord socket client</param>
+    /// <param name="discordClient">The discord socket client</param>
     /// <param name="optionsMonitor">An object that monitors the configuration options</param>
     /// <param name="logger">A logger to log with</param>
     /// <param name="serviceProvider">The service provider for this service</param>
     public DiscordClientService(
-        DiscordSocketClient socketClient,
+        IDiscordClient discordClient,
         IOptionsMonitor<DiscordClientServiceOptions> optionsMonitor,
         ILogger<DiscordClientService> logger,
         IServiceProvider serviceProvider
     )
     {
         GuildProviders = new ConcurrentDictionary<ulong, IServiceProvider>();
-        SocketClient = socketClient;
+        SocketClient = discordClient as DiscordSocketClient ?? throw new InvalidOperationException();
         OptionsMonitor = optionsMonitor;
         Logger = logger;
         ServiceProvider = serviceProvider;
@@ -52,13 +53,19 @@ public class DiscordClientService : BackgroundService, IDiscordClientService
             UseCompiledLambda = true,
             ExitOnMissingModalField = true
         };
-
+        
         InteractionService = new InteractionService(SocketClient, config);
+        InteractionService.AddModuleAsync<DeeJayCommandModule>(ServiceProvider);
         
         SocketClient.Log += LogMessage;
         SocketClient.SlashCommandExecuted += ExecuteSlashCommand;
-        SocketClient.Ready += () => SocketClient.SetActivityAsync(new Game("hard to get"));
+        SocketClient.Ready += OnReady;
+        SocketClient.JoinedGuild += OnJoinedGuild;
     }
+
+    private Task OnReady() => SocketClient.SetActivityAsync(new Game("hard to get"));
+
+    private Task OnJoinedGuild(SocketGuild guild) => InteractionService.RegisterCommandsToGuildAsync(guild.Id);
 
     private async Task ExecuteSlashCommand(SocketSlashCommand command)
     {

@@ -10,22 +10,23 @@ namespace DeeJay.Attributes
     public sealed class RequireVoiceChannel : PreconditionAttributeBase
     {
         /// <inheritdoc />
-        public override Task<PreconditionResult> CheckRequirementsAsync(
+        public override async Task<PreconditionResult> CheckRequirementsAsync(
             IInteractionContext context,
             ICommandInfo commandInfo,
             IServiceProvider services
         )
         {
-            if (!context.User.TryGetVoiceChannel(out var voiceChannel))
+            if (!context.User.TryGetVoiceChannel(out _))
             {
-                context.Channel.SendMessageAsync(
-                    $"{context.User.Mention}, you must be in a voice channel to execute the \"{commandInfo.Name}\" command.");
-                
-                return Failure(
+                await context.Interaction.RespondAsync(
+                    $"You must be in a voice channel to execute the \"{commandInfo.Name}\" command.",
+                    ephemeral: true);
+
+                return FailureResult(
                     $"{context.User.Username} attempted to issue command \"{commandInfo.Name}\" while not being in a voice channel.");
             }
 
-            return Success();
+            return SuccessResult();
         }
     }
 }

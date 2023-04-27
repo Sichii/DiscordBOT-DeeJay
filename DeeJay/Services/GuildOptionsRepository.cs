@@ -22,14 +22,30 @@ public sealed class GuildOptionsRepository : IGuildOptionsRepository
     /// <summary>
     ///    Initializes a new instance of the <see cref="GuildOptionsRepository" /> class
     /// </summary>
-    public GuildOptionsRepository(JsonSerializerOptions jsonSerializerOptions, IOptionsMonitor<GuildOptionsRepositoryOptions> optionsMonitor)
+    public GuildOptionsRepository(
+        JsonSerializerOptions jsonSerializerOptions,
+        IOptionsMonitor<GuildOptionsRepositoryOptions> optionsMonitor
+    )
     {
         JsonSerializerOptions = jsonSerializerOptions;
         OptionsMonitor = optionsMonitor;
         SaveSync = new AutoReleasingSemaphoreSlim(1, 1);
 
+        if (!Directory.Exists(Options.Directory))
+            Directory.CreateDirectory(Options.Directory);
+
+        var optionsPath = Path.Combine(Options.Directory, "guildOptions.json");
+
+        if (!File.Exists(optionsPath))
+        {
+            GuildOptions = new ConcurrentDictionary<ulong, IGuildOptions>();
+
+            return;
+        }
+
         //read existing options
-        var existingOptionsJson = File.ReadAllText(Path.Combine(Options.Directory, "guildOptions.json"));
+        var existingOptionsJson = File.ReadAllText(optionsPath);
+
         //serialize into concrete types
         var existingOptions =
             JsonSerializer.Deserialize<Dictionary<ulong, GuildOptions>>(existingOptionsJson, JsonSerializerOptions);
@@ -37,7 +53,7 @@ public sealed class GuildOptionsRepository : IGuildOptionsRepository
         //convert key value pairs to the interface type
         var convertedOptions = existingOptions?.Select(kvp => new KeyValuePair<ulong, IGuildOptions>(kvp.Key, kvp.Value))
                                ?? Enumerable.Empty<KeyValuePair<ulong, IGuildOptions>>();
-        
+
         //initialize the dictionary
         GuildOptions = new ConcurrentDictionary<ulong, IGuildOptions>(convertedOptions);
     }
