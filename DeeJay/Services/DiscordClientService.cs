@@ -60,12 +60,12 @@ public sealed class DiscordClientService : BackgroundService, IDiscordClientServ
         SocketClient.Log += LogMessage;
         SocketClient.SlashCommandExecuted += ExecuteSlashCommand;
         SocketClient.Ready += OnReady;
-        SocketClient.JoinedGuild += OnJoinedGuild;
+        SocketClient.GuildAvailable += OnGuildAvailable;
     }
 
     private Task OnReady() => SocketClient.SetActivityAsync(new Game("hard to get"));
 
-    private Task OnJoinedGuild(SocketGuild guild) => InteractionService.RegisterCommandsToGuildAsync(guild.Id);
+    private Task OnGuildAvailable(SocketGuild guild) => InteractionService.RegisterCommandsToGuildAsync(guild.Id);
 
     private async Task ExecuteSlashCommand(SocketSlashCommand command)
     {
@@ -119,7 +119,7 @@ public sealed class DiscordClientService : BackgroundService, IDiscordClientServ
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await SocketClient.LoginAsync(TokenType.Bot, Options.TokenPath);
+        await SocketClient.LoginAsync(TokenType.Bot, Options.TokenValue);
         await SocketClient.StartAsync();
         
         await Task.Delay(-1);

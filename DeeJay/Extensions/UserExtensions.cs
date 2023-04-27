@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics.CodeAnalysis;
+using DeeJay.Definitions;
 using Discord;
 
 namespace DeeJay.Extensions;
@@ -13,7 +14,7 @@ public static class UserExtensions
     /// </summary>
     /// <param name="user">This user</param>
     /// <param name="voiceChannel"></param>
-    internal static bool TryGetVoiceChannel(this IUser user, [MaybeNullWhen(false)] out IVoiceChannel voiceChannel)
+    public static bool TryGetVoiceChannel(this IUser user, [MaybeNullWhen(false)] out IVoiceChannel voiceChannel)
     {
         voiceChannel = default;
 
@@ -22,4 +23,18 @@ public static class UserExtensions
         
         return voiceChannel != default;
     }
+    
+    /// <summary>
+    ///    Checks if the user has the specified privilege.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
+    public static bool HasPrivilege(this IGuildUser user, Privilege privilege) =>
+        privilege switch
+        {
+            Privilege.None          => true,
+            Privilege.Normal        => user.GuildPermissions is { SendMessages: true, Connect: true },
+            Privilege.Elevated      => user.GuildPermissions.ManageChannels || user.GuildPermissions.KickMembers,
+            Privilege.Administrator => user.GuildPermissions.Administrator,
+            _                       => throw new ArgumentOutOfRangeException()
+        };
 }

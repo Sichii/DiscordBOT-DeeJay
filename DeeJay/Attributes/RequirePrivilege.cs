@@ -1,4 +1,5 @@
 ﻿using DeeJay.Definitions;
+using DeeJay.Extensions;
 using Discord;
 using Discord.Interactions;
 
@@ -23,16 +24,7 @@ namespace DeeJay.Attributes
             if(context.User is not IGuildUser guildUser)
                 return Failure($"The \"{commandInfo.Name}\" command can only be used in a guild.");
 
-            var hasPrivs = Privilege switch
-            {
-                Privilege.None          => true,
-                Privilege.Normal        => guildUser.GuildPermissions is { SendMessages: true, Connect: true },
-                Privilege.Elevated      => guildUser.GuildPermissions.ManageChannels || guildUser.GuildPermissions.KickMembers,
-                Privilege.Administrator => guildUser.GuildPermissions.Administrator,
-                _                            => throw new ArgumentOutOfRangeException()
-            };
-
-            if (hasPrivs)
+            if (guildUser.HasPrivilege(Privilege))
                 return Success();
 
             return Failure($"{guildUser.DisplayName} does not have the required privileges to run the \"{commandInfo.Name}\" command.");

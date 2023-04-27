@@ -3,6 +3,7 @@ using System.Text;
 using DeeJay.Abstractions;
 using DeeJay.Attributes;
 using DeeJay.Definitions;
+using DeeJay.Utility;
 using Discord.Interactions;
 using Microsoft.Extensions.Logging;
 
@@ -116,15 +117,20 @@ public class DeeJayCommandModule : InteractionModuleBase
     ///     Displays info about the current song
     /// </summary>
     [SlashCommand("showsong", "Displays info about the current song", runMode: RunMode.Async), RequireVoiceChannel]
-    public Task ShowSong()
+    public async Task ShowSong()
     {
         LogCommand();
+        await using var interaction = await InteractionHelper.DeferAsync(Context.Interaction, true);
         var nowPlaying = StreamingService.NowPlaying;
 
         if (nowPlaying == null)
-            return Context.Interaction.RespondAsync("No songs are currently playing", ephemeral: true);
+        {
+            await interaction.RespondAsync("No songs are currently playing");
 
-        return Context.Interaction.RespondAsync($"Now playing: \"{nowPlaying.Title}\" ({nowPlaying.Elapsed}/{nowPlaying.Duration})");
+            return;
+        }
+
+        await interaction.RespondAsync($"Now playing: \"{nowPlaying.Title}\" ({nowPlaying.Elapsed}/{nowPlaying.Duration})");
     }
     
     /// <summary>
@@ -134,16 +140,17 @@ public class DeeJayCommandModule : InteractionModuleBase
     public async Task ShowNext()
     {
         LogCommand();
+        await using var interaction = await InteractionHelper.DeferAsync(Context.Interaction, true);
         var next = await StreamingService.GetQueueAsync(Context).Skip(1).FirstOrDefaultAsync();
 
         if (next == null)
         {
-            await Context.Interaction.RespondAsync("No other songs in queue", ephemeral: true);
+            await interaction.RespondAsync("No other songs in queue");
 
             return;
         }
 
-        await Context.Interaction.RespondAsync($"Next up: \"{next.Title}\" ({next.Duration})", ephemeral: true);
+        await interaction.RespondAsync($"Next up: \"{next.Title}\" ({next.Duration})");
     }
     
     /// <summary>
@@ -176,16 +183,6 @@ public class DeeJayCommandModule : InteractionModuleBase
     {
         LogCommand();
         return StreamingService.RemoveSongAsync(Context, songIndex);
-    }
-
-    /// <summary>
-    ///   Displays a list of commands
-    /// </summary>
-    [SlashCommand("help", "Displays a list of commands", runMode: RunMode.Async)]
-    public Task Help()
-    {
-        LogCommand();
-        throw new NotImplementedException();
     }
 
     /// <summary>

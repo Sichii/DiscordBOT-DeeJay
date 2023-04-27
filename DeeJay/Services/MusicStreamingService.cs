@@ -59,6 +59,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     /// <inheritdoc />
     public async Task SetSlowModeAsync(IInteractionContext context, int amountPerPerson)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
         if (amountPerPerson == -1)
@@ -85,14 +86,13 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
                 }
             }
 
-        await context.Interaction.RespondAsync(
-            $"Slow mode set to {amountPerPerson}. {removeAmount} songs removed from queue",
-            ephemeral: true);
+        await interaction.RespondAsync($"Slow mode set to {amountPerPerson}. {removeAmount} songs removed from queue");
     }
 
     /// <inheritdoc />
     public async Task SetDesignatedChannelAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
         var originChannel = context.Channel;
@@ -102,30 +102,30 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             DesignatedChannel = textChannel;
             GuildOptions.DesignatedTextChannelId = textChannel.Id;
         }
-
-        await ReplyAsync(context, "Now using this channel to communicate");
+        
+        await ReplyAsync(context, "Now using this channel for non ephemeral responses");
     }
     
     /// <inheritdoc />
     public async Task QueueSongAsync(IInteractionContext context, string arg)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
         if(context.User is not IGuildUser guildUser)
             return;
 
+        await interaction.RespondAsync($"Searching for \"{arg}\"");
+
         if (!CanQueue(guildUser.Id))
-            await context.Interaction.ModifyOriginalResponseAsync(
-                msg => msg.Content = $"You have reached the maximum amount of songs you can queue ({GuildOptions.MaxSongsPerPerson!.Value
-                })");
+            await interaction.RespondAsync(
+                $"You have reached the maximum amount of songs you can queue ({GuildOptions.MaxSongsPerPerson!.Value})");
         
-        await context.Interaction.RespondAsync($"Searching for \"{arg}\"");
         var searchResult = await SearchService.SearchAsync(arg);
 
         if (!searchResult.Success)
         {
-            await context.Interaction.ModifyOriginalResponseAsync(
-                msg => msg.Content = $"Search for \"{searchResult.OriginalQuery}\" failed with \"{searchResult.ErrorMessage}\"");
+            await interaction.RespondAsync($"Search for \"{searchResult.OriginalQuery}\" failed with \"{searchResult.ErrorMessage}\"");
 
             return;
         }
@@ -133,7 +133,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
         var stream = new Song(guildUser, searchResult, false);
         Queue.Enqueue(stream);
         
-        await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Added \"{stream.Title}\" to queue");
+        await interaction.RespondAsync($"Added \"{stream.Title}\" to queue");
         
         if (CurrentVoiceChannel is null)
             await InnerJoinVoiceAsync(context);
@@ -147,16 +147,14 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     /// <inheritdoc />
     public async Task PlayAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
 
         if (context.User is not IGuildUser)
             return;
 
         if (CurrentVoiceChannel is null)
-            await JoinVoiceAsync(context);
-
-        if (Queue.IsEmpty)
-            return;
+            await InnerJoinVoiceAsync(context);
 
         await RequestPlayAsync();
     }
@@ -164,8 +162,9 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     /// <inheritdoc />
     public async Task PauseAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
-        
+
         if (context.User is not IGuildUser)
             return;
 
@@ -175,84 +174,135 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     /// <inheritdoc />
     public async Task SkipAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
-        if (context.User is not IGuildUser)
+        if (context.User is not IGuildUser guildUser)
             return;
+        
+        var nowPlaying = NowPlaying;
 
+        if (nowPlaying == null)
+            return;
+            
+        if(!guildUser.HasPrivilege(Privilege.Elevated) && !nowPlaying.RequestedBy.Equals(guildUser))
+        {
+            await interaction.RespondAsync(
+                $"You do not have permission to remove \"{nowPlaying.Title}\" from the queue");
+
+            return;
+        }
+            
         await RequestSkipAsync();
+        await ReplyAsync(context, $"{guildUser.DisplayName} skipped the current song");
     }
 
     /// <inheritdoc />
     public async Task SetLiveAsync(IInteractionContext context, Uri uri)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
         if (context.User is not IGuildUser guildUser)
             return;
 
-        await context.Interaction.RespondAsync($"Verifying live stream link");
+        await interaction.RespondAsync($"Verifying live stream link");
         var searchResult = await SearchService.SearchAsync(uri.ToString());
 
         if (!searchResult.Success || ((searchResult.Duration != TimeSpan.Zero) && (searchResult.Duration < TimeSpan.FromMinutes(10))))
         {
             var reason = searchResult.ErrorMessage ?? "Not a live stream";
 
-            await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Invalid live stream link for reason \"{reason}\"");
+            await interaction.RespondAsync($"Invalid live stream link for reason \"{reason}\"");
             
             return;
         }
 
         LiveStream = new Song(guildUser, searchResult, true);
-        await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Live stream set to {LiveStream.Title}");
+        await interaction.RespondAsync($"Live stream set to {LiveStream.Title}");
     }
 
     /// <inheritdoc />
     public async Task JoinVoiceAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
 
         await InnerJoinVoiceAsync(context);
+
     }
 
     /// <inheritdoc />
     public async Task LeaveVoiceAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
 
         await InnerLeaveVoiceAsync();
+
     }
 
     /// <inheritdoc />
     public async Task RemoveSongAsync(IInteractionContext context, int index)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
-        if (context.User is not IGuildUser)
+        if (context.User is not IGuildUser guildUser)
             return;
-
+        
         if ((index < 0) || (index >= Queue.Count))
-            return;
-
-        if (index == 0)
         {
-            await RequestSkipAsync();
+            await interaction.RespondAsync(
+                $"{index} is not a valid index. Current indexes are 0 - {Queue.Count - 1}");
 
             return;
         }
 
-        var streamToRemove = Queue.ElementAt(index);
-        Queue.Remove(streamToRemove);
+        if (index == 0)
+        {
+            var nowPlaying = NowPlaying;
+
+            if (nowPlaying == null)
+                return;
+            
+            if(!guildUser.HasPrivilege(Privilege.Elevated) && !nowPlaying.RequestedBy.Equals(guildUser))
+            {
+                await interaction.RespondAsync(
+                    $"You do not have permission to remove \"{nowPlaying.Title}\" from the queue");
+
+                return;
+            }
+            
+            await RequestSkipAsync();
+            await ReplyAsync(context, $"{guildUser.DisplayName} skipped the current song");
+
+            return;
+        }
         
-        await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Removed \"{streamToRemove.Title}\" from queue");
+        var streamToRemove = Queue.ElementAt(index);
+        
+        if(!guildUser.HasPrivilege(Privilege.Elevated) && !streamToRemove.RequestedBy.Id.Equals(guildUser.Id))
+        {
+            await interaction.RespondAsync(
+                $"You do not have permission to remove \"{streamToRemove.Title}\" from the queue");
+
+            return;
+        }
+        
+        Queue.Remove(streamToRemove);
+
+        await interaction.RespondAsync($"Removed \"{streamToRemove.Title}\" from queue");
+        await ReplyAsync(context, $"{guildUser.DisplayName} removed \"{streamToRemove.Title}\" from the queue");
     }
 
     /// <inheritdoc />
     public async Task ClearQueueAsync(IInteractionContext context)
     {
+        await using var interaction = await InteractionHelper.DeferAsync(context.Interaction, true);
         await using var @lock = await Sync.WaitAsync();
         
-        if (context.User is not IGuildUser)
+        if (context.User is not IGuildUser guildUser)
             return;
 
         var wasPlaying = State is MusicStreamingServiceState.Playing or MusicStreamingServiceState.Streaming;
@@ -265,7 +315,8 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
         if (wasPlaying)
             await RequestPlayAsync();
 
-        await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Queue cleared");
+        await interaction.RespondAsync($"Queue cleared");
+        await ReplyAsync(context, $"{guildUser.DisplayName} cleared the queue");
     }
 
     /// <inheritdoc />

@@ -47,7 +47,7 @@ public sealed class YtdlSearchService : ISearchService<ISearchResult>
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "youtube-dl.exe",
+                FileName = Options.YoutubeDlPath,
                 Arguments = args,
                 CreateNoWindow = true,
                 UseShellExecute = false,
