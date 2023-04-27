@@ -7,7 +7,7 @@ namespace DeeJay.Models;
 /// <summary>
 /// Represents a streamable song
 /// </summary>
-public sealed class YtdlSong : ISong
+public sealed class Song : ISong
 {
     /// <summary>
     /// The progress of the song
@@ -43,12 +43,12 @@ public sealed class YtdlSong : ISong
     public bool IsLive { get; }
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="YtdlSong"/> class.
+    /// Initializes a new instance of the <see cref="Song"/> class.
     /// </summary>
     /// <param name="requestedBy">Who the song was requested by</param>
     /// <param name="origin">The search result the song came from</param>
     /// <param name="isLive">Whether or not the stream is a live stream</param>
-    public YtdlSong(IGuildUser requestedBy, ISearchResult origin, bool isLive)
+    public Song(IGuildUser requestedBy, ISearchResult origin, bool isLive)
     {
         RequestedBy = requestedBy;
         SearchOrigin = origin;

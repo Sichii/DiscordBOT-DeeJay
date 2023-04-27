@@ -1,5 +1,4 @@
 ﻿using System.Runtime.CompilerServices;
-using DeeJay.Services;
 
 namespace DeeJay.Utility;
 
@@ -7,21 +6,21 @@ namespace DeeJay.Utility;
 /// Represents a payload that can be observed and awaited
 /// </summary>
 /// <typeparam name="T">The type of the payload</typeparam>
-public sealed class ObservablePayload<T>
+public sealed class ObservableSignal<T>
 {
     private readonly TaskCompletionSource Source;
     /// <summary>
     /// The payload
     /// </summary>
-    public T Obj { get; }
+    public T Signal { get; }
     
     /// <summary>
-    /// Initializes a new instance of the <see cref="ObservablePayload{T}"/> class.
+    /// Initializes a new instance of the <see cref="ObservableSignal{T}"/> class.
     /// </summary>
-    /// <param name="obj">The payload</param>
-    public ObservablePayload(T obj)
+    /// <param name="signal">The payload</param>
+    public ObservableSignal(T signal)
     {
-        Obj = obj;
+        Signal = signal;
         Source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 

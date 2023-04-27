@@ -74,7 +74,7 @@ public sealed class DiscordClientService : BackgroundService, IDiscordClientServ
 
         var guildProvider = GuildProviders.GetOrAdd(
             command.GuildId.Value,
-            static (_, b) => b.CreateScope().ServiceProvider,
+            static (_, p) => p.CreateScope().ServiceProvider,
             ServiceProvider);
 
         var context = new InteractionContext(SocketClient, command, command.Channel);
@@ -119,9 +119,9 @@ public sealed class DiscordClientService : BackgroundService, IDiscordClientServ
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await SocketClient.LoginAsync(TokenType.Bot, Options.Token);
+        await SocketClient.LoginAsync(TokenType.Bot, Options.TokenPath);
         await SocketClient.StartAsync();
-
+        
         await Task.Delay(-1);
     }
 }

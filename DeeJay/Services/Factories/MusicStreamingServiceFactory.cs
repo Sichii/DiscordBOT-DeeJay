@@ -1,29 +1,31 @@
 ﻿using DeeJay.Abstractions;
 using Discord;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
-namespace DeeJay.Services;
+namespace DeeJay.Services.Factories;
 
 /// <inheritdoc />
-public sealed class StreamingServiceFactory : IStreamingServiceFactory
+public sealed class MusicStreamingServiceFactory : IStreamingServiceFactory
 {
     private readonly ISearchService<ISearchResult> SearchService;
     private readonly IGuildOptionsRepository GuildOptionsRepository;
     private readonly ILoggerFactory LoggerFactory;
+    private readonly IStreamPlayerFactory StreamPlayerFactory;
 
     /// <summary>
-    ///    Creates a new <see cref="StreamingServiceFactory"/>
+    ///    Creates a new <see cref="MusicStreamingServiceFactory"/>
     /// </summary>
-    public StreamingServiceFactory(
+    public MusicStreamingServiceFactory(
         ISearchService<ISearchResult> searchService,
         IGuildOptionsRepository guildOptionsRepository,
-        ILoggerFactory loggerFactory
+        ILoggerFactory loggerFactory,
+        IStreamPlayerFactory streamPlayerFactory
     )
     {
         SearchService = searchService;
         GuildOptionsRepository = guildOptionsRepository;
         LoggerFactory = loggerFactory;
+        StreamPlayerFactory = streamPlayerFactory;
     }
 
     /// <inheritdoc />
@@ -35,6 +37,7 @@ public sealed class StreamingServiceFactory : IStreamingServiceFactory
             guild,
             SearchService,
             guildOptions,
-            LoggerFactory.CreateLogger<MusicStreamingService>());
+            LoggerFactory.CreateLogger<MusicStreamingService>(),
+            StreamPlayerFactory);
     }
 }

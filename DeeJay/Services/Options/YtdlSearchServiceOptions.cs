@@ -9,4 +9,9 @@ public sealed class YtdlSearchServiceOptions
     ///   The proxy url to use for youtube-dl
     /// </summary>
     public string? ProxyUrl { get; set; }
+    
+    /// <summary>
+    ///  The path to the youtube-dl executable
+    /// </summary>
+    public required string YoutubeDlPath { get; set; }
 }

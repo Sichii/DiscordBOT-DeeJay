@@ -2,6 +2,12 @@
     <PropertyGroup>
         <OutputType>Exe</OutputType>
     </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+      <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <PlatformTarget>AnyCPU</PlatformTarget>
+    </PropertyGroup>
     <ItemGroup>
       <PackageReference Include="Discord.Net" />
       <PackageReference Include="JetBrains.Annotations" />

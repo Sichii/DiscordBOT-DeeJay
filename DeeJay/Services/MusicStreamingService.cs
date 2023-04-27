@@ -17,7 +17,7 @@ namespace DeeJay.Services;
 public sealed class MusicStreamingService : BackgroundService, IStreamingService
 {
     private readonly ISearchService<ISearchResult> SearchService;
-    private readonly ConcurrentQueue<YtdlSong> Queue;
+    private readonly ConcurrentQueue<Song> Queue;
     private IVoiceChannel? CurrentVoiceChannel;
     private IAudioClient? AudioClient;
     private MusicStreamingServiceState State;
@@ -25,12 +25,13 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     private readonly IGuildOptions GuildOptions;
     private readonly IGuild Guild;
     private ITextChannel? DesignatedChannel;
-    private YtdlSong? LiveStream;
+    private ISong? LiveStream;
     private readonly ILogger<MusicStreamingService> Logger;
-    private readonly ConcurrentQueue<ObservablePayload<StateAction>> StateActionRequests;
+    private readonly ConcurrentQueue<ObservableSignal<StateAction>> StateActionRequests;
+    private readonly IStreamPlayerFactory StreamPlayerFactory;
     /// <inheritdoc />
     public ISong? NowPlaying => Queue.TryPeek(out var stream) ? stream : LiveStream;
-    private YtdlStreamPlayer? Player;
+    private IStreamPlayer? Player;
     private DateTime? LastIdleTransition;
 
     /// <summary>
@@ -40,17 +41,19 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
         IGuild guild,
         ISearchService<ISearchResult> searchService,
         IGuildOptions guildOptions,
-        ILogger<MusicStreamingService> logger
+        ILogger<MusicStreamingService> logger,
+        IStreamPlayerFactory streamPlayerFactory
     )
     {
         Guild = guild;
         SearchService = searchService;
-        Queue = new ConcurrentQueue<YtdlSong>();
+        Queue = new ConcurrentQueue<Song>();
         SetState(MusicStreamingServiceState.Idle);
         Sync = new AutoReleasingSemaphoreSlim(1, 1);
         GuildOptions = guildOptions;
         Logger = logger;
-        StateActionRequests = new ConcurrentQueue<ObservablePayload<StateAction>>();
+        StreamPlayerFactory = streamPlayerFactory;
+        StateActionRequests = new ConcurrentQueue<ObservableSignal<StateAction>>();
     }
 
     /// <inheritdoc />
@@ -127,7 +130,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             return;
         }
         
-        var stream = new YtdlSong(guildUser, searchResult, false);
+        var stream = new Song(guildUser, searchResult, false);
         Queue.Enqueue(stream);
         
         await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Added \"{stream.Title}\" to queue");
@@ -200,7 +203,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             return;
         }
 
-        LiveStream = new YtdlSong(guildUser, searchResult, true);
+        LiveStream = new Song(guildUser, searchResult, true);
         await context.Interaction.ModifyOriginalResponseAsync(msg => msg.Content = $"Live stream set to {LiveStream.Title}");
     }
 
@@ -408,7 +411,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     #region StateRequests
     private async Task RequestPlayAsync()
     {
-        var observable = new ObservablePayload<StateAction>(StateAction.Play);
+        var observable = new ObservableSignal<StateAction>(StateAction.Play);
         StateActionRequests.Enqueue(observable);
 
         await observable;
@@ -416,7 +419,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     
     private async Task RequestPauseAsync()
     {
-        var observable = new ObservablePayload<StateAction>(StateAction.Pause);
+        var observable = new ObservableSignal<StateAction>(StateAction.Pause);
         StateActionRequests.Enqueue(observable);
 
         await observable;
@@ -424,7 +427,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     
     private async Task RequestSkipAsync()
     {
-        var observable = new ObservablePayload<StateAction>(StateAction.Skip);
+        var observable = new ObservableSignal<StateAction>(StateAction.Skip);
         StateActionRequests.Enqueue(observable);
 
         await observable;
@@ -437,8 +440,8 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     {
         if (AudioClient is null || LiveStream is null)
             return Task.CompletedTask;
-        
-        Player = new YtdlStreamPlayer(LiveStream, Logger);
+
+        Player = StreamPlayerFactory.Create(LiveStream); 
         _ = Player.PlayAsync(AudioClient);
 
         SetState(MusicStreamingServiceState.Streaming);
@@ -453,7 +456,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             if (!Queue.TryPeek(out var currentStream) || AudioClient is null)
                 return Task.CompletedTask;
 
-            Player = new YtdlStreamPlayer(currentStream, Logger);
+            Player = StreamPlayerFactory.Create(currentStream);
             _ = Player.PlayAsync(AudioClient);
 
             SetState(MusicStreamingServiceState.Playing);
@@ -561,12 +564,12 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
     
     private async Task ProcessRequestAsync()
     {
-        if (!StateActionRequests.TryDequeue(out var requestPayload))
+        if (!StateActionRequests.TryDequeue(out var request))
             return;
 
         try
         {
-            switch (requestPayload.Obj)
+            switch (request.Signal)
             {
                 case StateAction.Play:
                     await HandlePlayRequestAsync();
@@ -585,7 +588,7 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             }
         } finally
         {
-            requestPayload.Complete();
+            request.Complete();
         }
     }
     #endregion

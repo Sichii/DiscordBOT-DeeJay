@@ -2,10 +2,7 @@
 using System.Text;
 using DeeJay.Abstractions;
 using DeeJay.Definitions;
-using DeeJay.Models;
 using Discord.Audio;
-using Discord.Audio.Streams;
-using Microsoft.AspNetCore.Internal;
 using Microsoft.Extensions.Logging;
 
 namespace DeeJay.Services;
@@ -13,22 +10,25 @@ namespace DeeJay.Services;
 /// <summary>
 /// Represents a service that can stream 
 /// </summary>
-public sealed class YtdlStreamPlayer : IStreamPlayer
+public sealed class FfmpegStreamPlayer : IStreamPlayer
 {
-    private readonly YtdlSong Song;
+    private readonly ISong Song;
     private readonly CancellationTokenSource Ctx;
-    private readonly ILogger Logger;
+    private readonly ILogger<FfmpegStreamPlayer> Logger;
     private TaskCompletionSource? Completion;
+    private readonly string FfmpegPath;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="YtdlStreamPlayer"/> class.
+    /// Initializes a new instance of the <see cref="FfmpegStreamPlayer"/> class.
     /// </summary>
     /// <param name="song">The stream to be streamed</param>
+    /// <param name="ffmpegPath"></param>
     /// <param name="logger">The logger used by this instance</param>
-    public YtdlStreamPlayer(YtdlSong song, ILogger logger)
+    public FfmpegStreamPlayer(ISong song, string ffmpegPath, ILogger<FfmpegStreamPlayer> logger)
     {
         Song = song;
         Logger = logger;
+        FfmpegPath = ffmpegPath;
         Ctx = new CancellationTokenSource();
     }
 
@@ -67,7 +67,7 @@ public sealed class YtdlStreamPlayer : IStreamPlayer
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "ffmpeg.exe",
+                FileName = FfmpegPath,
                 Arguments = builder.ToString(),
                 CreateNoWindow = true,
                 UseShellExecute = false,

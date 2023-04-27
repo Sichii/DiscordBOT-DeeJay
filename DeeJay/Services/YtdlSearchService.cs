@@ -15,7 +15,7 @@ public sealed class YtdlSearchService : ISearchService<ISearchResult>
     private readonly ILogger<YtdlSearchService> Logger;
     private readonly IOptionsMonitor<YtdlSearchServiceOptions> OptionsMonitor;
     private YtdlSearchServiceOptions Options => OptionsMonitor.CurrentValue;
-    private const string YtdlArgs =
+    private const string YTDL_ARGS =
         "-f bestaudio/best --simulate --get-url --get-title --get-duration --retries 2 --no-cache-dir --sleep-interval 2 --max-sleep-interval 4";
 
     /// <summary>
@@ -36,7 +36,7 @@ public sealed class YtdlSearchService : ISearchService<ISearchResult>
         Logger.LogTrace("Starting ytdl search for {@Query}", query);
         
         //construct args
-        var args = YtdlArgs;
+        var args = YTDL_ARGS;
         
         if(!string.IsNullOrEmpty(Options.ProxyUrl))
             args += $" --proxy {Options.ProxyUrl}";

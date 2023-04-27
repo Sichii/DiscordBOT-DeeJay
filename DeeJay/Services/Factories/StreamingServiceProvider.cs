@@ -1,42 +1,44 @@
 ﻿using System.Collections.Concurrent;
 using DeeJay.Abstractions;
 using Discord;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
-namespace DeeJay.Services;
+namespace DeeJay.Services.Factories;
 
 /// <summary>
 /// Provides streaming services
 /// </summary>
 public sealed class StreamingServiceProvider : IStreamingServiceProvider
 {
-    private readonly IServiceProvider Provider;
+    private readonly IStreamingServiceFactory StreamingServiceFactory;
     private readonly ConcurrentDictionary<ulong, IStreamingService> Services;
     private readonly CancellationTokenSource Ctx;
 
     /// <summary>
     /// Creates a new <see cref="StreamingServiceProvider"/>
     /// </summary>
-    public StreamingServiceProvider(IServiceProvider provider)
+    public StreamingServiceProvider(IStreamingServiceFactory streamingServiceFactory, CancellationTokenSource ctx)
     {
-        Provider = provider;
         Services = new ConcurrentDictionary<ulong, IStreamingService>();
-        Ctx = provider.GetRequiredService<CancellationTokenSource>();
+        Ctx = ctx;
+        StreamingServiceFactory = streamingServiceFactory;
     }
 
     /// <inheritdoc />
     public IStreamingService GetStreamingService(IGuild guild) => Services.GetOrAdd(
         guild.Id,
         InnerGetStreamingService,
-        (Provider, guild, Ctx.Token));
+        (StreamingServiceFactory, guild, Ctx.Token));
 
-    private static IStreamingService InnerGetStreamingService(ulong gid, (IServiceProvider provider, IGuild guild, CancellationToken stoppingToken) data)
+    private static IStreamingService InnerGetStreamingService(
+        ulong gid,
+        (IStreamingServiceFactory Factory, IGuild Guild, CancellationToken StoppingToken) data
+    )
     {
-        var svc = data.provider.GetRequiredService<IStreamingServiceFactory>().Create(data.guild);
+        var svc = data.Factory.Create(data.Guild);
 
         if (svc is IHostedService hs)
-            hs.StartAsync(data.stoppingToken);
+            hs.StartAsync(data.StoppingToken);
 
         return svc;
     }

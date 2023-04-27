@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using DeeJay.Abstractions;
 using DeeJay.Extensions;
 using DeeJay.Services;
+using DeeJay.Services.Factories;
 using DeeJay.Services.Options;
 using Discord;
 using Discord.WebSocket;
@@ -70,7 +71,7 @@ public sealed class Startup
             });
 
         services.AddSingleton<IDiscordClient, DiscordSocketClient>();
-        services.AddTransient<IStreamingServiceFactory, StreamingServiceFactory>();
+        services.AddTransient<IStreamingServiceFactory, MusicStreamingServiceFactory>();
         services.AddSingleton<IStreamingServiceProvider, StreamingServiceProvider>();
         
         services.AddOptionsFromConfig<GuildOptionsRepositoryOptions>(ConfigKeys.Options.Key);
@@ -79,8 +80,13 @@ public sealed class Startup
         services.AddOptionsFromConfig<YtdlSearchServiceOptions>(ConfigKeys.Options.Key);
         services.AddTransient<ISearchService<ISearchResult>, YtdlSearchService>();
 
+        services.AddOptionsFromConfig<FfmpegStreamPlayerOptions>(ConfigKeys.Options.Key);
+        services.AddTransient<IStreamPlayerFactory, FfmpegStreamPlayerFactory>();
+
         services.AddOptionsFromConfig<DiscordClientServiceOptions>(ConfigKeys.Options.Key);
         services.AddHostedService<DiscordClientService>();
+        
+        services.ConfigureOptions<OptionsConfigurer>();
     }
 
     private void RegisterStructuredLoggingTransformations() =>

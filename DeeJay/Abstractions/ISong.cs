@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using DeeJay.Models;
 using Discord;
 
 namespace DeeJay.Abstractions;
