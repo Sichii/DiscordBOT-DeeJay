@@ -455,7 +455,9 @@ public sealed class MusicStreamingService : BackgroundService, IStreamingService
             await RequestPauseAsync();
         
         AudioClient?.Dispose();
+        AudioClient = null;
         await CurrentVoiceChannel.DisconnectAsync();
+        CurrentVoiceChannel = null;
     }
     #endregion
     

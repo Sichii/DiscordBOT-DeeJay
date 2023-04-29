@@ -61,7 +61,7 @@ public sealed class FfmpegStreamPlayer : IStreamPlayer
             builder.Append(" -vn");
         
         //output has 2 channels, normalized loudness, 15% volume, 16bit pcm/wav, 48000hz, piped to output 1 (standardoutput)
-        builder.Append(" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-0, volume=0.5\" -f s16le -ar 48000 pipe:1");
+        builder.Append(" -ac 2 -af \"loudnorm=I=-14:LRA=11:TP=-1, volume=0.35\" -f s16le -ar 48000 pipe:1");
         
         using var ffmpeg = new Process
         {
